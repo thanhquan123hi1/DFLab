@@ -36,9 +36,16 @@ from metrics.utils import parse_metric_for_print
 from logger import create_logger, RankFilter
 
 
+def safe_torch_load(path, map_location='cpu'):
+    try:
+        return torch.load(path, map_location=map_location, weights_only=False)
+    except TypeError:
+        return torch.load(path, map_location=map_location)
+
+
 parser = argparse.ArgumentParser(description='Process some paths.')
 parser.add_argument('--detector_path', type=str,
-                    default='training/config/detector/biasln.yaml',
+                    default='training/config/detector/ln_sspanet_mil.yaml',
                     help='path to detector YAML file')
 parser.add_argument("--train_dataset", nargs="+")
 parser.add_argument("--test_dataset", nargs="+")
@@ -285,7 +292,7 @@ def main():
     logger.info('Save log to {}'.format(logger_path))
     config['ddp']= args.ddp
     if config.get('video_mode', False):
-        raise ValueError('BiasLN is frame-level; disable video_mode')
+        raise ValueError(f"{config['model_name']} is frame-level; disable video_mode")
     if config.get('SWA') or config['optimizer']['type'] == 'sam':
         raise ValueError('LN+SSPANet currently supports Adam/SGD, without SAM/SWA')
     if args.ddp and not torch.cuda.is_available():
@@ -337,7 +344,7 @@ def main():
         logger.info(f"🔄 Loading pretrained weights from: {config['pretrained']}")
         try:
             # Load checkpoint
-            checkpoint = torch.load(config['pretrained'], map_location='cpu', weights_only=False)
+            checkpoint = safe_torch_load(config['pretrained'], map_location='cpu')
             
             # Xử lý trường hợp checkpoint lưu cả epoch/optimizer (dict lồng nhau)
             if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:

@@ -51,7 +51,7 @@ subprocess.run([PYTHON, '-I', 'scripts/check_environment.py'], check=True)
 subprocess.run([PYTHON, '-I', '-m', 'pytest', 'tests', '-q'], check=True)
 subprocess.run([
     PYTHON, '-I', 'training/train.py',
-    '--detector_path', 'training/config/detector/biasln.yaml',
+    '--detector_path', 'training/config/detector/ln_sspanet_mil.yaml',
     '--train_dataset', 'FaceForensics++',
 ], check=True)
 ```
@@ -68,7 +68,7 @@ automatic change made by the installer.
 ```python
 subprocess.run([
     PYTHON, '-I', 'training/test.py',
-    '--detector_path', 'training/config/detector/biasln.yaml',
+    '--detector_path', 'training/config/detector/ln_sspanet_mil.yaml',
     '--weights_path', '/path/to/run/validation/FaceForensics++/ckpt_best.pth',
     '--test_dataset', 'Celeb-DF-v2',
 ], check=True)

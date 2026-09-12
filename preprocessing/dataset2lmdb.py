@@ -59,19 +59,18 @@ def read_lmdb(lmdb_dir_path):
         # image = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
 
-# 使用示例
-import argparse
-# 创建 ArgumentParser 对象
-parser = argparse.ArgumentParser(description='Process some inputs.')
-
-# 添加 --name 参数
-parser.add_argument('--dataset_size', type=int, default=25, required=True,
-                    help='lmdb requires pre-specifying the total dataset size (GB)')
-
-# 解析参数
-args = parser.parse_args()
-
 if __name__ == '__main__':
+    # 使用示例
+    import argparse
+    # 创建 ArgumentParser 对象
+    parser = argparse.ArgumentParser(description='Process some inputs.')
+
+    # 添加 --name 参数
+    parser.add_argument('--dataset_size', type=int, default=25, required=True,
+                        help='lmdb requires pre-specifying the total dataset size (GB)')
+
+    # 解析参数
+    args = parser.parse_args()
     # from config.yaml load parameters
     yaml_path = './preprocessing/config.yaml'
     # open the yaml file

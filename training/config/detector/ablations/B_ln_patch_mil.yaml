@@ -1,5 +1,5 @@
 pretrained: null
-model_name: biasln
+model_name: ln_sspanet_mil
 backbone_name: vit
 clip_model_name: openai/clip-vit-large-patch14
 use_patch: true

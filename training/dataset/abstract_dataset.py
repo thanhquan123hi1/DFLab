@@ -46,6 +46,14 @@ class DeepfakeAbstractBaseDataset(data.Dataset):
         self.video_level = config.get('video_mode', False)
         self.clip_size = config.get('clip_size', None)
         self.lmdb = config.get('lmdb', False)
+        self.use_consistency_views = bool(
+            mode == 'train' and config.get('use_consistency_views', False)
+        )
+        if self.use_consistency_views and not config.get('use_data_augmentation', False):
+            raise ValueError(
+                'use_consistency_views requires use_data_augmentation=true so the '
+                'strong view is meaningfully different from the weak view.'
+            )
         self.image_list = []
         self.label_list = []
         
@@ -84,7 +92,37 @@ class DeepfakeAbstractBaseDataset(data.Dataset):
         }
         
         self.transform = self.init_data_aug_method()
-        
+        self.weak_transform = (
+            self.init_weak_data_aug_method()
+            if self.use_consistency_views
+            else None
+        )
+
+    def _keypoint_params(self):
+        return (
+            A.KeypointParams(format='xy', remove_invisible=False)
+            if self.config.get('with_landmark', False)
+            else None
+        )
+
+    def init_weak_data_aug_method(self):
+        """Preserve forensic traces while adding a small invariance challenge."""
+        return A.Compose(
+            [
+                A.HorizontalFlip(
+                    p=float(self.config.get('consistency_weak_flip_prob', 0.5))
+                ),
+            ],
+            keypoint_params=self._keypoint_params(),
+        )
+
+    @staticmethod
+    def _get_image_compression(lower, upper, p=0.5):
+        try:
+            return A.ImageCompression(quality_range=(lower, upper), p=p)
+        except (TypeError, ValueError):
+            return A.ImageCompression(quality_lower=lower, quality_upper=upper, p=p)
+
     def init_data_aug_method(self):
         trans = A.Compose([           
             A.HorizontalFlip(p=self.config['data_aug']['flip_prob']),
@@ -99,10 +137,10 @@ class DeepfakeAbstractBaseDataset(data.Dataset):
                 A.RandomBrightnessContrast(brightness_limit=self.config['data_aug']['brightness_limit'], contrast_limit=self.config['data_aug']['contrast_limit']),
                 A.FancyPCA(),
                 A.HueSaturationValue()
-            ], p=0.5),
-            A.ImageCompression(quality_lower=self.config['data_aug']['quality_lower'], quality_upper=self.config['data_aug']['quality_upper'], p=0.5)
+            ], p=float(self.config['data_aug'].get('brightness_prob', 0.5))),
+            self._get_image_compression(lower=self.config['data_aug']['quality_lower'], upper=self.config['data_aug']['quality_upper'], p=0.5)
         ], 
-            keypoint_params=A.KeypointParams(format='xy') if self.config['with_landmark'] else None
+            keypoint_params=self._keypoint_params()
         )
         return trans
 

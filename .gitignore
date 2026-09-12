@@ -1,17 +1,49 @@
-.idea
-*__pycache__*
-*.vscode*
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
 *.pyc
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+.venv*/
+venv/
+ENV/
+env/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Model checkpoints and logs
 *.pth
 *.pt
 *.dat
-
-# Ignore datasets and logs
-datasets/rgb/
+*.log
 logs/
-tmp/
-.pytest_cache/
+runs/
+checkpoints/
+wandb/
 tsne_pkls/
+tmp/
 
-# Isolated runtime dependencies
-.venv-colab/
+# Datasets
+datasets/rgb/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/

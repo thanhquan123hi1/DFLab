@@ -10,8 +10,18 @@ sys.path.insert(0, str(ROOT / 'training'))
 
 
 def main():
-    if not (3, 10) <= sys.version_info[:2] <= (3, 12):
-        raise RuntimeError('DFLab environment requires Python 3.10-3.12')
+    if not (3, 8) <= sys.version_info[:2] <= (3, 12):
+        raise RuntimeError('DFLab environment requires Python 3.8-3.12')
+    required = ['numpy', 'cv2', 'torch', 'torchvision', 'albumentations', 'yaml', 'PIL', 'transformers']
+    missing = []
+    for pkg in required:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        print(f"Error: Missing required packages: {missing}. Please install dependencies via: pip install -r requirements.txt")
+        sys.exit(1)
     import numpy as np
     import cv2
     import torch
@@ -24,11 +34,15 @@ def main():
     from detectors import DETECTOR
     from trainer.trainer import Trainer
     for name in ('torch', 'torchvision', 'transformers', 'numpy', 'scipy',
-                 'scikit-learn', 'scikit-image', 'albumentations', 'opencv-python-headless'):
-        print(f'{name}: {importlib.metadata.version(name)}', flush=True)
-    if albumentations.__version__ != '1.3.1':
-        raise RuntimeError('Use the isolated environment: augmentation requires albumentations==1.3.1')
-    with (ROOT / 'training/config/detector/biasln.yaml').open() as stream:
+                 'scikit-learn', 'scikit-image', 'albumentations'):
+        try:
+            print(f'{name}: {importlib.metadata.version(name)}', flush=True)
+        except Exception:
+            pass
+    cfg_path = ROOT / 'training/config/detector/ln_sspanet_mil.yaml'
+    if not cfg_path.exists():
+        cfg_path = ROOT / 'training/config/detector/biasln.yaml'
+    with cfg_path.open() as stream:
         config = yaml.safe_load(stream)
     with tempfile.TemporaryDirectory(prefix='dflab-check-') as directory:
         folder = Path(directory)

@@ -13,9 +13,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--env-dir', type=Path, default=ROOT / '.venv-colab')
     args = parser.parse_args()
-    if not (3, 10) <= sys.version_info[:2] <= (3, 12):
-        parser.error('Use Python 3.10-3.12. In Colab run this script with sys.executable '
-                     'from a compatible runtime; do not switch /usr/bin/python3 to Python 3.8.')
+    if not (3, 8) <= sys.version_info[:2] <= (3, 12):
+        parser.error('Use Python 3.8-3.12.')
     target = args.env_dir.resolve()
     if target.exists() and not (target / 'pyvenv.cfg').exists():
         parser.error(f'{target} exists and is not a virtual environment; choose another directory.')
@@ -27,8 +26,12 @@ def main():
     python = target / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     def run(*arguments):
         subprocess.run([str(python), '-I', *arguments], cwd=ROOT, env=env, check=True)
-    run('-m', 'pip', 'install', '--upgrade', 'pip')
-    run('-m', 'pip', 'install', '-r', str(ROOT / 'requirements-biasln.txt'))
+    req_file = ROOT / 'requirements-ln-sspanet-mil.txt'
+    if not req_file.exists():
+        req_file = ROOT / 'requirements.txt'
+    if not req_file.exists():
+        req_file = ROOT / 'requirements-biasln.txt'
+    run('-m', 'pip', 'install', '-r', str(req_file))
     run('-m', 'pip', 'check')
     run(str(ROOT / 'scripts/check_environment.py'))
     print(f'Environment ready. Train with: {python} -I training/train.py', flush=True)

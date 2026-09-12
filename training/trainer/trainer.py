@@ -1,4 +1,4 @@
-"""BiasLN training with source-validation selection and auditable diagnostics."""
+"""LN-SSPANet-MIL training with source-validation selection and auditable diagnostics."""
 import datetime
 import os
 import time

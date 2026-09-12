@@ -52,9 +52,16 @@ def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=
     return result, arrays
 
 
+def safe_torch_load(path, map_location='cpu'):
+    try:
+        return torch.load(path, map_location=map_location, weights_only=False)
+    except TypeError:
+        return torch.load(path, map_location=map_location)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--detector_path', default='training/config/detector/biasln.yaml')
+    parser.add_argument('--detector_path', default='training/config/detector/ln_sspanet_mil.yaml')
     parser.add_argument('--weights_path', required=True)
     parser.add_argument('--test_dataset', nargs='+')
     parser.add_argument('--save_feat', action='store_true')
@@ -69,7 +76,7 @@ def main():
         config = yaml.safe_load(stream)
     with open(os.path.join(ROOT, 'training/config/test_config.yaml'), encoding='utf-8') as stream:
         config.update(yaml.safe_load(stream))
-    checkpoint = torch.load(args.weights_path, map_location='cpu', weights_only=False)
+    checkpoint = safe_torch_load(args.weights_path, map_location='cpu')
     # Preserve model architecture from the checkpoint, but use current evaluation paths.
     if isinstance(checkpoint, dict) and 'config' in checkpoint:
         for key in ('clip_model_name', 'use_patch', 'use_sspanet', 'lambda_mil', 'mil_topk',

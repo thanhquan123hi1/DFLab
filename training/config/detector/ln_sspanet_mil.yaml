@@ -1,4 +1,3 @@
-# Backward compatibility alias for ln_sspanet_mil
 # model setting
 pretrained: null
 model_name: ln_sspanet_mil

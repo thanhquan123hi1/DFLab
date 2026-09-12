@@ -7,13 +7,24 @@ import numpy as np
 import pytest
 import torch
 from torch import nn
-from detectors.biasln_detector import BiasLNDetector, topk_mil_logits
+from detectors.ln_sspanet_mil_detector import (
+    LNSSPANetMILDetector,
+    BiasLNDetector,
+    topk_mil_logits,
+)
 from detectors.modules.sspanet import ATTN_Block
 from metrics.base_metrics_class import Recorder
 from metrics.utils import get_test_metrics
 
 torch.set_num_threads(2)
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def safe_torch_load(path, map_location='cpu'):
+    try:
+        return torch.load(path, map_location=map_location, weights_only=False)
+    except TypeError:
+        return torch.load(path, map_location=map_location)
 
 
 class SmallBackbone(nn.Module):
@@ -34,9 +45,16 @@ class SmallBackbone(nn.Module):
 
 @pytest.fixture
 def detector(monkeypatch):
-    monkeypatch.setattr(BiasLNDetector, 'build_backbone', lambda self, config: SmallBackbone())
+    monkeypatch.setattr(LNSSPANetMILDetector, 'build_backbone', lambda self, config: SmallBackbone())
     torch.manual_seed(2)
-    return BiasLNDetector(dict(mil_topk=3, lambda_mil=.3))
+    return LNSSPANetMILDetector(dict(mil_topk=3, lambda_mil=.3))
+
+
+def test_detector_registry():
+    from metrics.registry import DETECTOR
+    assert DETECTOR['ln_sspanet_mil'] is LNSSPANetMILDetector
+    assert DETECTOR['biasln'] is LNSSPANetMILDetector
+    assert BiasLNDetector is LNSSPANetMILDetector
 
 
 def test_official_source_unchanged():
@@ -91,12 +109,12 @@ def test_gradients_and_freezing(detector, labels):
 
 
 def test_ablation_without_patch(monkeypatch):
-    monkeypatch.setattr(BiasLNDetector, 'build_backbone', lambda self, config: SmallBackbone())
-    model = BiasLNDetector(dict(use_patch=False, use_sspanet=False, lambda_mil=0))
+    monkeypatch.setattr(LNSSPANetMILDetector, 'build_backbone', lambda self, config: SmallBackbone())
+    model = LNSSPANetMILDetector(dict(use_patch=False, use_sspanet=False, lambda_mil=0))
     data = dict(image=torch.randn(2, 3, 8, 8), label=torch.tensor([0, 1]))
     assert model.get_losses(data, model(data))['loss_mil'] == 0
     with pytest.raises(ValueError):
-        BiasLNDetector(dict(use_patch=False))
+        LNSSPANetMILDetector(dict(use_patch=False))
 
 
 def test_metrics_video_collisions_and_single_class():
@@ -128,20 +146,20 @@ def test_trainer_checkpoint_diagnostics_and_test_cap(detector, tmp_path):
         def __getitem__(self, i):
             return dict(image=torch.ones(3, 8, 8) * (i + 1), label=torch.tensor(i % 2))
     loader = torch.utils.data.DataLoader(Data(), batch_size=2)
-    config = dict(cuda=False, ddp=False, model_name='biasln', log_dir=str(tmp_path),
+    config = dict(cuda=False, ddp=False, model_name='ln_sspanet_mil', log_dir=str(tmp_path),
                   optimizer={'type': 'adam'}, selection_dataset='source', validation_split='val',
                   log_interval=1, save_ckpt=True, grad_clip_norm=5.)
     trainer = Trainer(config, detector, torch.optim.Adam([p for p in detector.parameters() if p.requires_grad], lr=.001),
                       None, logging.getLogger('test'), time_now='smoke')
     trainer.train_epoch(0, loader, {'source': loader})
-    checkpoint = tmp_path / 'biasln_smoke/validation/source/ckpt_best.pth'
+    checkpoint = tmp_path / 'ln_sspanet_mil_smoke/validation/source/ckpt_best.pth'
     assert checkpoint.exists()
-    state = torch.load(checkpoint, weights_only=False)
+    state = safe_torch_load(checkpoint)
     detector.load_state_dict(state['state_dict'], strict=True)
     result, arrays = evaluate(detector.eval(), loader, torch.device('cpu'), max_samples=3, patch_limit=2)
     assert result['n'] == 3 and len(arrays['image_names']) == 3
     assert arrays['patch_prob'].shape == (2, 4, 4)
-    assert (tmp_path / 'biasln_smoke/train.jsonl').exists()
+    assert (tmp_path / 'ln_sspanet_mil_smoke/train.jsonl').exists()
     for writer in trainer.writers.values():
         writer.close()
 
@@ -151,8 +169,8 @@ def test_actual_huggingface_clip_contract(monkeypatch):
     config = transformers.CLIPVisionConfig(hidden_size=16, intermediate_size=32,
         num_hidden_layers=2, num_attention_heads=2, image_size=28, patch_size=7)
     backbone = transformers.CLIPVisionModel(config).vision_model
-    monkeypatch.setattr(BiasLNDetector, 'build_backbone', lambda self, cfg: backbone)
-    model = BiasLNDetector(dict(mil_topk=4))
+    monkeypatch.setattr(LNSSPANetMILDetector, 'build_backbone', lambda self, cfg: backbone)
+    model = LNSSPANetMILDetector(dict(mil_topk=4))
     data = dict(image=torch.randn(2, 3, 28, 28), label=torch.tensor([0, 1]))
     out = model(data)
     assert out['feat'].shape == (2, 16) and out['patch_logits'].shape == (2, 4, 4)
@@ -180,7 +198,7 @@ def test_dataset_val_sampling_and_missing_image(tmp_path, mode, frame_limit):
     pytest.importorskip('lmdb')
     from PIL import Image
     from dataset.abstract_dataset import DeepfakeAbstractBaseDataset
-    with (ROOT / 'training/config/detector/biasln.yaml').open() as stream:
+    with (ROOT / 'training/config/detector/ln_sspanet_mil.yaml').open() as stream:
         config = yaml.safe_load(stream)
     config.update(lmdb=False, rgb_dir=str(tmp_path), dataset_json_folder=str(tmp_path),
                   test_dataset='Fixture', train_dataset=['Fixture'], eval_split='val',
@@ -213,3 +231,67 @@ def test_dataset_val_sampling_and_missing_image(tmp_path, mode, frame_limit):
     dataset.data_dict['image'][1] = 'missing/0.png'
     with pytest.raises(RuntimeError, match='Failed to load sample'):
         dataset[1]
+
+
+def test_config_alias():
+    import yaml
+    with (ROOT / 'training/config/detector/biasln.yaml').open() as stream:
+        cfg = yaml.safe_load(stream)
+    assert cfg['model_name'] in ('ln_sspanet_mil', 'biasln')
+
+
+def test_safe_torch_load_compatibility(tmp_path, monkeypatch):
+    from training.train import safe_torch_load as train_safe_load
+    from training.test import safe_torch_load as test_safe_load
+
+    dummy_path = tmp_path / "dummy.pth"
+    torch.save({'a': 1, 'b': torch.tensor([1, 2, 3])}, dummy_path)
+
+    # Test normal load with both implementations
+    for fn in (safe_torch_load, train_safe_load, test_safe_load):
+        res = fn(dummy_path)
+        assert res['a'] == 1 and (res['b'] == torch.tensor([1, 2, 3])).all()
+
+    # Test fallback behavior when weights_only raises TypeError (like PyTorch 1.12)
+    real_load = torch.load
+    def mock_load(path, *args, **kwargs):
+        if 'weights_only' in kwargs:
+            raise TypeError("torch.load() got an unexpected keyword argument 'weights_only'")
+        return real_load(path, *args, **kwargs)
+
+    monkeypatch.setattr(torch, 'load', mock_load)
+    for fn in (safe_torch_load, train_safe_load, test_safe_load):
+        res_fallback = fn(dummy_path)
+        assert res_fallback['a'] == 1
+
+
+def test_biasln_detector_shim():
+    import detectors.biasln_detector as shim
+    assert shim.LNSSPANetMILDetector is LNSSPANetMILDetector
+    assert shim.BiasLNDetector is LNSSPANetMILDetector
+    assert shim.topk_mil_logits is topk_mil_logits
+
+
+def test_ablation_configs():
+    import yaml
+    ablation_dir = ROOT / 'training/config/detector/ablations'
+    assert ablation_dir.is_dir()
+    configs = list(ablation_dir.glob('*.yaml'))
+    assert len(configs) == 4
+    for cfg_path in configs:
+        with cfg_path.open(encoding='utf-8') as stream:
+            cfg = yaml.safe_load(stream)
+        assert cfg['model_name'] == 'ln_sspanet_mil'
+        assert cfg['clip_model_name'] == 'openai/clip-vit-large-patch14'
+
+
+def test_requirements_files_consistency():
+    for name in ('requirements-ln-sspanet-mil.txt', 'requirements-biasln.txt', 'requirements.txt'):
+        path = ROOT / name
+        assert path.is_file()
+        content = path.read_text(encoding='utf-8')
+        assert 'numpy==1.21.5' in content
+        assert 'torch==1.12.0+cu113' in content
+        assert 'albumentations' in content
+        assert 'transformers' in content
+
