@@ -6,10 +6,11 @@ new experimental architecture; the historical BiasLN results below do not apply
 to it. Read the [implementation plan and repository audit](docs/LN_SSPANET_MIL_PLAN.md)
 and [pinned source provenance](docs/SSPANET_SOURCE.md) before training.
 
-Use Python 3.10-3.12 and `requirements-biasln.txt` for the new pipeline. The old
-`install.sh` below targets the historical environment; do not mix both recipes.
-The requirements recipe is a proposed clean environment; smoke-test dependencies
-used on this machine are recorded in `docs/VERIFICATION.md`.
+Use Python 3.10-3.12 with the isolated installer. See [Colab setup](docs/COLAB.md)
+and the runnable [Colab notebook](notebooks/DFLab_Colab.ipynb). `install.sh` now
+creates `.venv-colab` instead of installing historical packages into system Python.
+The main dependency versions are pinned in `requirements-biasln.txt`. The legacy
+Albumentations API is retained deliberately to preserve augmentation behavior.
 
 Default checkpoint selection uses **FaceForensics++ validation (`val`)**, not target
 test data. Best weights are at `validation/FaceForensics++/ckpt_best.pth` inside
@@ -79,27 +80,20 @@ DFLab/
 |-- install.sh                # Installation script
 ```
 
-## Historical installation (use the requirements recipe above for the current model)
-
-Clone the repository:
+## Installation
 
 ```bash
 git clone https://github.com/thanhquan123hi1/DFLab.git
 cd DFLab
+python3 scripts/setup_colab.py
+.venv-colab/bin/python -I training/train.py --detector_path training/config/detector/biasln.yaml
 ```
 
-Create a conda environment:
-
-```bash
-conda create -n biasln python=3.8 -y
-conda activate biasln
-```
-
-Install dependencies:
-
-```bash
-bash install.sh
-```
+Configure dataset paths before training. In a notebook, invoke setup using
+`sys.executable`; follow [the Colab guide](docs/COLAB.md). Do not downgrade the
+runtime to Python 3.8. Use `.venv-colab/bin/python` for both training and testing.
+The installer covers processed RGB frames + JSON, not all historical raw-video
+preprocessing or analysis tools (which may need separate optional dependencies).
 
 ## Dataset Download
 

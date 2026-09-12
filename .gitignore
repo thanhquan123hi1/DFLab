@@ -12,3 +12,6 @@ logs/
 tmp/
 .pytest_cache/
 tsne_pkls/
+
+# Isolated runtime dependencies
+.venv-colab/

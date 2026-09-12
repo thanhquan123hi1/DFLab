@@ -1,5 +1,23 @@
 # Verification (2026-09-12)
 
+## Isolated Colab dependency recipe (2026-09-13)
+
+- Executed `scripts/setup_colab.py --env-dir tmp/colab-venv` on Windows,
+  Python 3.12.10, in a fresh venv without system site packages.
+- The full requirements installation succeeded; `pip check` reported no broken
+  requirements. Unlike earlier target-directory tests, this was an isolated install.
+- NumPy 1.26.4, OpenCV headless 4.10.0.84, SciPy 1.14.1, scikit-learn 1.5.2,
+  scikit-image 0.24.0, Albumentations 1.3.1, Transformers 4.44.2,
+  torch 2.6.0 and torchvision 0.21.0 imported successfully.
+- `scripts/check_environment.py` passed real augmentation/PNG/JSON loader checks
+  for both training and testing, using generated samples.
+- All 19 tests passed in the fresh environment (4.10 seconds), including model
+  gradients, strict checkpoints, tiny Hugging Face CLIP and official SSPANet hash.
+- Colab notebook code cells passed syntax checks with IPython transformations.
+- This Windows wheel install was CPU-only. Hosted Colab/Linux CUDA execution,
+  pretrained CLIP-L/14 and full real-dataset training have not been tested here.
+- Dependency changes preserve the model code and the legacy augmentation policy.
+
 ## Sampling update (2026-09-13)
 
 - Restored DeepfakeBench's frame-count capping and sampling order as requested.
