@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'training'))
 from detectors import DETECTOR
-from metrics.utils import binary_metrics, get_test_metrics, write_json
+from metrics.utils import binary_metrics, get_test_metrics, write_json, format_compact_test_report
 
 
 @torch.no_grad()
@@ -109,7 +109,7 @@ def main():
         safe = name.replace('/', '_').replace('\\', '_')
         write_json(os.path.join(out_dir, safe + '_metrics.json'), result)
         np.savez_compressed(os.path.join(out_dir, safe + '_predictions.npz'), **arrays)
-        print(name, {k: v for k, v in result.items() if k not in ('pred', 'label')})
+        print(format_compact_test_report(name, result))
         if args.save_feat:
             os.makedirs(args.feat_out_dir, exist_ok=True)
             payload = dict(feat=arrays['feat'], label=arrays['label'], label_spe=arrays['label_spe'],

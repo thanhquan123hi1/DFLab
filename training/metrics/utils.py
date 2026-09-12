@@ -85,3 +85,70 @@ def write_json(path, data, append=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('a' if append else 'w', encoding='utf-8') as stream:
         stream.write(json.dumps(clean(data), ensure_ascii=False) + '\n')
+
+
+def format_compact_test_report(name, result):
+    """Format evaluation metrics into a clean, compact, human-readable summary report."""
+    def fmt_pct(val, decimals=2):
+        if val is None or not np.isfinite(val):
+            return "N/A"
+        return f"{val * 100:.{decimals}f}%"
+
+    v_auc = fmt_pct(result.get('video_auc'))
+    f_auc = fmt_pct(result.get('auc'))
+    v_eer = fmt_pct(result.get('video_eer'))
+    f_eer = fmt_pct(result.get('eer'))
+
+    mil_v_auc = result.get('mil_video_auc')
+    cls_v_auc = result.get('cls_only_video_auc')
+    mil_f_auc = result.get('mil_auc')
+    cls_f_auc = result.get('cls_only_auc')
+
+    v_auc_extra = []
+    if mil_v_auc is not None and np.isfinite(mil_v_auc):
+        v_auc_extra.append(f"MIL: {fmt_pct(mil_v_auc)}")
+    if cls_v_auc is not None and np.isfinite(cls_v_auc):
+        v_auc_extra.append(f"CLS: {fmt_pct(cls_v_auc)}")
+    v_auc_str = f"  ({ ' | '.join(v_auc_extra) })" if v_auc_extra else ""
+
+    f_auc_extra = []
+    if mil_f_auc is not None and np.isfinite(mil_f_auc):
+        f_auc_extra.append(f"MIL: {fmt_pct(mil_f_auc)}")
+    if cls_f_auc is not None and np.isfinite(cls_f_auc):
+        f_auc_extra.append(f"CLS: {fmt_pct(cls_f_auc)}")
+    f_auc_str = f"  ({ ' | '.join(f_auc_extra) })" if f_auc_extra else ""
+
+    v_acc = fmt_pct(result.get('video_acc'))
+    f_acc = fmt_pct(result.get('acc'))
+    v_real = fmt_pct(result.get('video_acc_real'))
+    v_fake = fmt_pct(result.get('video_acc_fake'))
+
+    v_ap = fmt_pct(result.get('video_ap'))
+    f_ap = fmt_pct(result.get('ap'))
+
+    v_tpr1 = fmt_pct(result.get('video_tpr_at_fpr_01'))
+    v_tpr5 = fmt_pct(result.get('video_tpr_at_fpr_05'))
+
+    tn = result.get('video_tn', 'N/A')
+    fp = result.get('video_fp', 'N/A')
+    fn = result.get('video_fn', 'N/A')
+    tp = result.get('video_tp', 'N/A')
+
+    v_n = result.get('video_n', 'N/A')
+    f_n = result.get('n', 'N/A')
+
+    lines = [
+        f"\n>>> [{name}] TEST SUMMARY ({v_n} videos, {f_n} frames) <<<",
+        "-" * 70,
+        f"* VIDEO AUC : {v_auc}{v_auc_str}",
+        f"* FRAME AUC : {f_auc}{f_auc_str}",
+        f"* VIDEO EER : {v_eer}  (Frame EER: {f_eer})",
+        "-" * 70,
+        "[Secondary Details - Fusion]:",
+        f"  - Acc (Video/Frame)  : {v_acc} / {f_acc} (Real: {v_real}, Fake: {v_fake})",
+        f"  - AP  (Video/Frame)  : {v_ap} / {f_ap}",
+        f"  - Low FPR Detection  : TPR@1% = {v_tpr1} | TPR@5% = {v_tpr5}",
+        f"  - Video Confusion    : TN={tn}, FP={fp}, FN={fn}, TP={tp}",
+        "-" * 70,
+    ]
+    return "\n".join(lines)
