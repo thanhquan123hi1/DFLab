@@ -14,7 +14,7 @@ selection_dataset: FaceForensics++
 grad_clip_norm: 5.0
 log_interval: 100
 weight_real: 1.0
-weight_fake: 2.0
+weight_fake: 1.0
 label_smoothing: 0.1
 backbone_config:
   mode: original
@@ -91,7 +91,7 @@ optimizer:
 lr_scheduler: cosine
 lr_T_max: 15
 lr_eta_min: 1.0e-05
-nEpochs: 15
+nEpochs: 10
 start_epoch: 0
 save_epoch: 1
 rec_iter: 100

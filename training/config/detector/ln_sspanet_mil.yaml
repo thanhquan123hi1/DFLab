@@ -17,7 +17,7 @@ grad_clip_norm: 5.0
 log_interval: 100
 # Loss settings (held constant across ablations)
 weight_real: 1.0
-weight_fake: 2.0
+weight_fake: 1.0
 label_smoothing: 0.1
 
 # backbone setting
