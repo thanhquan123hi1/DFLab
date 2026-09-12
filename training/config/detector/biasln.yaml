@@ -91,7 +91,7 @@ optimizer:
 lr_scheduler: cosine
 lr_T_max: 15
 lr_eta_min: 0.00001
-nEpochs: 15
+nEpochs: 10
 start_epoch: 0
 save_epoch: 1
 rec_iter: 100

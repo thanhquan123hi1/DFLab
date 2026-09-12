@@ -227,6 +227,7 @@ def choose_scheduler(config, optimizer):
             config['nEpochs'],
             int(config['nEpochs']/4),
         )
+        return scheduler
     else:
         raise NotImplementedError('Scheduler {} is not implemented'.format(config['lr_scheduler']))
 
