@@ -1,0 +1,2 @@
+# Preserve exact bytes of the author's public implementation for provenance tests.
+training/detectors/modules/sspanet.py -text

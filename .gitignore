@@ -1,0 +1,14 @@
+.idea
+*__pycache__*
+*.vscode*
+*.pyc
+*.pth
+*.pt
+*.dat
+
+# Ignore datasets and logs
+datasets/rgb/
+logs/
+tmp/
+.pytest_cache/
+tsne_pkls/
