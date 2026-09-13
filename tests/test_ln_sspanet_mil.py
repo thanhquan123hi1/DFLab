@@ -498,3 +498,34 @@ def test_requirements_files_consistency():
         assert 'albumentations' in content
         assert 'transformers' in content
 
+
+def test_eval_ensemble_sweep(tmp_path):
+    from analysis.eval_ensemble import run_ensemble_sweep
+    from metrics.utils import format_compact_test_report
+    # Create synthetic predictions npz
+    names = np.array(['v1/0.png', 'v1/1.png', 'v2/0.png', 'v2/1.png'])
+    labels = np.array([0, 0, 1, 1])
+    prob = np.array([0.2, 0.3, 0.7, 0.8])
+    mil_prob = np.array([0.1, 0.2, 0.8, 0.9])
+    cls_only_prob = np.array([0.25, 0.35, 0.65, 0.75])
+
+    npz_path = tmp_path / "test_predictions.npz"
+    np.savez(npz_path, prob=prob, mil_prob=mil_prob, cls_only_prob=cls_only_prob,
+             label=labels, image_names=names)
+
+    best_item, results = run_ensemble_sweep(npz_path, weights=[0.0, 0.5, 1.0], save=True)
+    assert len(results) == 3
+    assert best_item['video_auc'] == 1.0
+    saved_json = tmp_path / f"test_predictions_ensemble_best_w{best_item['weight']:.2f}.json"
+    assert saved_json.exists()
+
+    # Test format_compact_test_report displays Ensemble properly
+    res_dict = dict(video_auc=0.95, ensemble_video_auc=0.965, mil_video_auc=0.958, cls_only_video_auc=0.949,
+                    auc=0.87, ensemble_auc=0.885, mil_auc=0.88, cls_only_auc=0.865,
+                    video_eer=0.12, eer=0.20, n=4, video_n=2)
+    report = format_compact_test_report('Synthetic', res_dict)
+    assert 'Ensemble: 96.50%' in report
+    assert 'MIL: 95.80%' in report
+    assert 'CLS: 94.90%' in report
+
+

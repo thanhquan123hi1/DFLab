@@ -101,10 +101,14 @@ def format_compact_test_report(name, result):
 
     mil_v_auc = result.get('mil_video_auc')
     cls_v_auc = result.get('cls_only_video_auc')
+    ens_v_auc = result.get('ensemble_video_auc')
     mil_f_auc = result.get('mil_auc')
     cls_f_auc = result.get('cls_only_auc')
+    ens_f_auc = result.get('ensemble_auc')
 
     v_auc_extra = []
+    if ens_v_auc is not None and np.isfinite(ens_v_auc):
+        v_auc_extra.append(f"Ensemble: {fmt_pct(ens_v_auc)}")
     if mil_v_auc is not None and np.isfinite(mil_v_auc):
         v_auc_extra.append(f"MIL: {fmt_pct(mil_v_auc)}")
     if cls_v_auc is not None and np.isfinite(cls_v_auc):
@@ -112,6 +116,8 @@ def format_compact_test_report(name, result):
     v_auc_str = f"  ({ ' | '.join(v_auc_extra) })" if v_auc_extra else ""
 
     f_auc_extra = []
+    if ens_f_auc is not None and np.isfinite(ens_f_auc):
+        f_auc_extra.append(f"Ensemble: {fmt_pct(ens_f_auc)}")
     if mil_f_auc is not None and np.isfinite(mil_f_auc):
         f_auc_extra.append(f"MIL: {fmt_pct(mil_f_auc)}")
     if cls_f_auc is not None and np.isfinite(cls_f_auc):

@@ -16,7 +16,7 @@ from metrics.utils import binary_metrics, get_test_metrics, write_json, format_c
 
 
 @torch.no_grad()
-def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=False):
+def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=False, ensemble_weight=0.5):
     values = {k: [] for k in ('prob', 'label', 'label_spe', 'cls_only_prob', 'mil_prob', 'feat')}
     patches, names, patch_names = [], [], []
     count = 0
@@ -47,6 +47,12 @@ def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=
         if key in arrays:
             branch = get_test_metrics(arrays[key], arrays['label'], names)
             result.update({key.replace('_prob', '') + '_' + k: v for k, v in branch.items() if k not in ('pred', 'label')})
+    if 'mil_prob' in arrays and 'prob' in arrays and ensemble_weight is not None and ensemble_weight >= 0:
+        ens_w = float(ensemble_weight)
+        ens_prob = (1.0 - ens_w) * arrays['prob'] + ens_w * arrays['mil_prob']
+        arrays['ensemble_prob'] = ens_prob
+        ens_branch = get_test_metrics(ens_prob, arrays['label'], names)
+        result.update({'ensemble_' + k: v for k, v in ens_branch.items() if k not in ('pred', 'label')})
     arrays.update(image_names=np.asarray(names), patch_image_names=np.asarray(patch_names),
                   patch_prob=np.concatenate(patches) if patches else np.empty((0,)))
     return result, arrays
@@ -69,6 +75,8 @@ def main():
     parser.add_argument('--output_dir', default=None)
     parser.add_argument('--max_samples', type=int)
     parser.add_argument('--patch_limit', type=int, default=32)
+    parser.add_argument('--ensemble_weight', type=float, default=0.5,
+                        help='Weight for MIL branch in decision ensemble: (1-w)*Fusion + w*MIL (default: 0.5, negative to disable)')
     args = parser.parse_args()
     if args.max_samples is not None and args.max_samples < 1:
         parser.error('--max_samples must be positive')
@@ -100,12 +108,13 @@ def main():
     out_dir = args.output_dir or os.path.join(os.path.dirname(os.path.abspath(args.weights_path)), 'evaluation')
     os.makedirs(out_dir, exist_ok=True)
     write_json(os.path.join(out_dir, 'evaluation_config.json'), dict(config=config, checkpoint=os.path.abspath(args.weights_path), max_samples=args.max_samples))
+    ens_w = args.ensemble_weight if args.ensemble_weight >= 0 else None
     for name in datasets:
         cfg = dict(config, test_dataset=name)
         dataset = DeepfakeAbstractBaseDataset(cfg, mode='test')
         loader = DataLoader(dataset, batch_size=config['test_batchSize'], shuffle=False,
                             num_workers=config['workers'], collate_fn=dataset.collate_fn, drop_last=False)
-        result, arrays = evaluate(model, loader, device, args.max_samples, args.patch_limit, args.save_feat)
+        result, arrays = evaluate(model, loader, device, args.max_samples, args.patch_limit, args.save_feat, ensemble_weight=ens_w)
         safe = name.replace('/', '_').replace('\\', '_')
         write_json(os.path.join(out_dir, safe + '_metrics.json'), result)
         np.savez_compressed(os.path.join(out_dir, safe + '_predictions.npz'), **arrays)
