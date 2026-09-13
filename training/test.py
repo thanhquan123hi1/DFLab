@@ -18,7 +18,7 @@ from metrics.utils import binary_metrics, get_test_metrics, write_json, format_c
 @torch.no_grad()
 def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=False, ensemble_weight=0.5):
     values = {k: [] for k in ('prob', 'label', 'label_spe', 'cls_only_prob', 'mil_prob', 'feat')}
-    patches, names, patch_names = [], [], []
+    patches, names, patch_names, attns = [], [], [], []
     count = 0
     global_names = loader.dataset.data_dict['image']
     for batch in loader:
@@ -38,6 +38,8 @@ def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=
         if take and 'patch_logits' in out:
             patches.append(out['patch_logits'][:take].sigmoid().cpu().numpy())
             patch_names.extend(batch_names[:take])
+        if take and 'attn_weights' in out:
+            attns.append(out['attn_weights'][:take].cpu().numpy())
         count += remaining
     arrays = {k: np.concatenate(v) for k, v in values.items() if v}
     if not count:
@@ -54,7 +56,8 @@ def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=
         ens_branch = get_test_metrics(ens_prob, arrays['label'], names)
         result.update({'ensemble_' + k: v for k, v in ens_branch.items() if k not in ('pred', 'label')})
     arrays.update(image_names=np.asarray(names), patch_image_names=np.asarray(patch_names),
-                  patch_prob=np.concatenate(patches) if patches else np.empty((0,)))
+                  patch_prob=np.concatenate(patches) if patches else np.empty((0,)),
+                  attn_weights=np.concatenate(attns) if attns else np.empty((0,)))
     return result, arrays
 
 
@@ -88,7 +91,8 @@ def main():
     # Preserve model architecture from the checkpoint, but use current evaluation paths.
     if isinstance(checkpoint, dict) and 'config' in checkpoint:
         for key in ('clip_model_name', 'use_patch', 'use_sspanet', 'lambda_mil', 'mil_topk',
-                    'fusion_alpha_init', 'label_smoothing', 'weight_real', 'weight_fake',
+                    'fusion_alpha_init', 'fusion_gamma_init', 'cross_attn_heads', 'cross_attn_dropout',
+                    'label_smoothing', 'weight_real', 'weight_fake',
                     'resolution', 'mean', 'std', 'model_name'):
             if key in checkpoint['config']:
                 config[key] = checkpoint['config'][key]
