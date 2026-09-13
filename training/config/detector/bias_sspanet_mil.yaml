@@ -1,10 +1,9 @@
-# Backward compatibility alias for ln_sspanet_mil
 # model setting
 pretrained: null
-model_name: ln_sspanet_mil
+model_name: bias_sspanet_mil
 backbone_name: vit
 
-# LN-only backbone + unmodified official SSPANet + auxiliary top-k MIL
+# Bias-tuning (BitFit) + unmodified official SSPANet + auxiliary top-k MIL
 clip_model_name: openai/clip-vit-large-patch14
 use_patch: true
 use_sspanet: true

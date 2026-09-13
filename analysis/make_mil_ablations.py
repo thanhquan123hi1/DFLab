@@ -6,7 +6,7 @@ import yaml
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--base', default='training/config/detector/biasln.yaml')
+    parser.add_argument('--base', default='training/config/detector/ln_sspanet_mil.yaml')
     parser.add_argument('--output_dir', default='training/config/detector/ablations')
     args = parser.parse_args()
     with open(args.base, encoding='utf-8') as stream:

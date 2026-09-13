@@ -30,7 +30,7 @@ def main():
     if not req_file.exists():
         req_file = ROOT / 'requirements.txt'
     if not req_file.exists():
-        req_file = ROOT / 'requirements-biasln.txt'
+        req_file = ROOT / 'requirements-bias-sspanet-mil.txt'
     run('-m', 'pip', 'install', '-r', str(req_file))
     run('-m', 'pip', 'check')
     run(str(ROOT / 'scripts/check_environment.py'))

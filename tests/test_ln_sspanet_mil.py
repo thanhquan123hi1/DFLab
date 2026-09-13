@@ -9,7 +9,7 @@ import torch
 from torch import nn
 from detectors.ln_sspanet_mil_detector import (
     LNSSPANetMILDetector,
-    BiasLNDetector,
+    BiasSSPANetMILDetector,
     topk_mil_logits,
 )
 from detectors.modules.sspanet import ATTN_Block
@@ -51,10 +51,27 @@ def detector(monkeypatch):
 
 
 def test_detector_registry():
+    import detectors
+    import detectors.bias_sspanet_mil_detector as bias_mod
+    import detectors.ln_sspanet_mil_detector as ln_mod
     from metrics.registry import DETECTOR
     assert DETECTOR['ln_sspanet_mil'] is LNSSPANetMILDetector
-    assert DETECTOR['biasln'] is LNSSPANetMILDetector
-    assert BiasLNDetector is LNSSPANetMILDetector
+    assert DETECTOR['bias_sspanet_mil'] is BiasSSPANetMILDetector
+    assert DETECTOR['bias_sspanet_mil'] is not LNSSPANetMILDetector
+    assert issubclass(BiasSSPANetMILDetector, LNSSPANetMILDetector)
+    # Check all import avenues resolve to the exact same class
+    assert detectors.BiasSSPANetMILDetector is BiasSSPANetMILDetector
+    assert detectors.LNSSPANetMILDetector is LNSSPANetMILDetector
+    assert bias_mod.BiasSSPANetMILDetector is BiasSSPANetMILDetector
+    assert ln_mod.BiasSSPANetMILDetector is BiasSSPANetMILDetector
+    assert 'BiasSSPANetMILDetector' in dir(ln_mod)
+
+
+@pytest.fixture
+def bias_sspanet_mil_detector(monkeypatch):
+    monkeypatch.setattr(BiasSSPANetMILDetector, 'build_backbone', lambda self, config: SmallBackbone())
+    torch.manual_seed(2)
+    return BiasSSPANetMILDetector(dict(mil_topk=3, lambda_mil=.3))
 
 
 def test_official_source_unchanged():
@@ -108,6 +125,59 @@ def test_gradients_and_freezing(detector, labels):
         torch.testing.assert_close(detector(data)['prob'], detector(data, inference=True)['prob'])
 
 
+@pytest.mark.parametrize('labels', [[0, 1], [0, 0], [1, 1], [0, 4]])
+def test_bias_sspanet_mil_gradients_and_freezing(bias_sspanet_mil_detector, labels):
+    data = dict(image=torch.randn(2, 3, 8, 8), label=torch.tensor(labels))
+    out = bias_sspanet_mil_detector(data)
+    assert out['patch_logits'].shape == (2, 4, 4)
+    losses = bias_sspanet_mil_detector.get_losses(data, out)
+    torch.testing.assert_close(losses['overall'], losses['loss_ce'] + .3 * losses['loss_mil'])
+    losses['overall'].backward()
+
+    # Backbone parameters: only parameters containing 'bias' are trainable
+    backbone_bias_count = 0
+    backbone_frozen_count = 0
+    for name, param in bias_sspanet_mil_detector.backbone.named_parameters():
+        if 'bias' in name:
+            assert param.requires_grad is True, f"Expected {name} to be trainable"
+            assert param.grad is not None, f"Expected {name} to receive gradient"
+            assert param.grad.abs().sum() > 0, f"Expected nonzero gradient for {name}"
+            backbone_bias_count += 1
+        else:
+            assert param.requires_grad is False, f"Expected {name} to be frozen"
+            assert param.grad is None, f"Expected {name} to have no gradient"
+            backbone_frozen_count += 1
+    assert backbone_bias_count > 0
+    assert backbone_frozen_count > 0
+
+    # Explicit contract contrast: LayerNorm weights frozen, LayerNorm biases trainable
+    assert bias_sspanet_mil_detector.backbone.layer_norm.weight.requires_grad is False
+    assert bias_sspanet_mil_detector.backbone.layer_norm.weight.grad is None
+    assert bias_sspanet_mil_detector.backbone.layer_norm.bias.requires_grad is True
+    assert bias_sspanet_mil_detector.backbone.layer_norm.bias.grad.abs().sum() > 0
+
+    # Linear layer weights frozen, Linear biases trainable
+    assert bias_sspanet_mil_detector.backbone.mix.weight.requires_grad is False
+    assert bias_sspanet_mil_detector.backbone.mix.weight.grad is None
+    assert bias_sspanet_mil_detector.backbone.mix.bias.requires_grad is True
+    assert bias_sspanet_mil_detector.backbone.mix.bias.grad.abs().sum() > 0
+
+    # Detector auxiliary modules: sspanet, patch_head, head, fusion_alpha are trainable and receive gradient
+    for group_name, group in [('sspanet', bias_sspanet_mil_detector.sspanet),
+                              ('patch_head', bias_sspanet_mil_detector.patch_head),
+                              ('head', bias_sspanet_mil_detector.head)]:
+        assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in group.parameters()), \
+            f"Expected gradient in {group_name}"
+    assert bias_sspanet_mil_detector.head.weight.grad is not None and bias_sspanet_mil_detector.head.weight.grad.abs().sum() > 0
+    assert bias_sspanet_mil_detector.head.bias.grad is not None and bias_sspanet_mil_detector.head.bias.grad.abs().sum() > 0
+    assert bias_sspanet_mil_detector.fusion_alpha.grad is not None
+    assert bias_sspanet_mil_detector.fusion_alpha.grad.abs().sum() > 0
+
+    bias_sspanet_mil_detector.eval()
+    with torch.no_grad():
+        torch.testing.assert_close(bias_sspanet_mil_detector(data)['prob'], bias_sspanet_mil_detector(data, inference=True)['prob'])
+
+
 def test_ablation_without_patch(monkeypatch):
     monkeypatch.setattr(LNSSPANetMILDetector, 'build_backbone', lambda self, config: SmallBackbone())
     model = LNSSPANetMILDetector(dict(use_patch=False, use_sspanet=False, lambda_mil=0))
@@ -115,6 +185,35 @@ def test_ablation_without_patch(monkeypatch):
     assert model.get_losses(data, model(data))['loss_mil'] == 0
     with pytest.raises(ValueError):
         LNSSPANetMILDetector(dict(use_patch=False))
+
+
+def test_bias_sspanet_mil_ablation_without_patch(monkeypatch):
+    monkeypatch.setattr(BiasSSPANetMILDetector, 'build_backbone', lambda self, config: SmallBackbone())
+    model = BiasSSPANetMILDetector(dict(use_patch=False, use_sspanet=False, lambda_mil=0))
+    data = dict(image=torch.randn(2, 3, 8, 8), label=torch.tensor([0, 1]))
+    assert model.get_losses(data, model(data))['loss_mil'] == 0
+    with pytest.raises(ValueError):
+        BiasSSPANetMILDetector(dict(use_patch=False))
+
+
+def test_bias_sspanet_mil_weight_zero_freezes_patch_head(monkeypatch):
+    monkeypatch.setattr(BiasSSPANetMILDetector, 'build_backbone', lambda self, config: SmallBackbone())
+    model = BiasSSPANetMILDetector(dict(mil_topk=3, lambda_mil=0.0, use_patch=True))
+    assert model.patch_head.weight.requires_grad is False
+    assert model.patch_head.bias.requires_grad is False
+    assert 'patch_head' not in model.trainable_counts
+    assert 'backbone_bias' in model.trainable_counts
+
+
+def test_bias_sspanet_mil_trainable_counts(bias_sspanet_mil_detector):
+    counts = bias_sspanet_mil_detector.trainable_counts
+    assert 'backbone_bias' in counts
+    assert counts['backbone_bias'] == 32  # 4 layers * 8 bias params each in SmallBackbone
+    assert 'head' in counts
+    assert 'sspanet' in counts
+    assert 'patch_head' in counts
+    assert 'fusion_alpha' in counts
+    assert sum(p.numel() for p in bias_sspanet_mil_detector.parameters() if p.requires_grad) == sum(counts.values())
 
 
 def test_metrics_video_collisions_and_single_class():
@@ -155,11 +254,20 @@ def test_trainer_checkpoint_diagnostics_and_test_cap(detector, tmp_path):
     checkpoint = tmp_path / 'ln_sspanet_mil_smoke/validation/source/ckpt_best.pth'
     assert checkpoint.exists()
     state = safe_torch_load(checkpoint)
+    assert state.get('architecture') == 'ln_sspanet_mil_v1'
     detector.load_state_dict(state['state_dict'], strict=True)
     result, arrays = evaluate(detector.eval(), loader, torch.device('cpu'), max_samples=3, patch_limit=2)
     assert result['n'] == 3 and len(arrays['image_names']) == 3
     assert arrays['patch_prob'].shape == (2, 4, 4)
     assert (tmp_path / 'ln_sspanet_mil_smoke/train.jsonl').exists()
+    import json
+    ln_train_lines = [json.loads(line) for line in (tmp_path / 'ln_sspanet_mil_smoke/train.jsonl').read_text().strip().split('\n')]
+    assert len(ln_train_lines) > 0
+    assert 'grad_backbone_ln' in ln_train_lines[0]
+    assert 'grad_backbone_bias' not in ln_train_lines[0]
+    ln_trainable_data = json.loads((tmp_path / 'ln_sspanet_mil_smoke/trainable_parameters.json').read_text())
+    assert 'backbone_ln' in ln_trainable_data
+    assert 'backbone_bias' not in ln_trainable_data
     for writer in trainer.writers.values():
         writer.close()
 
@@ -177,6 +285,34 @@ def test_actual_huggingface_clip_contract(monkeypatch):
     model.get_losses(data, out)['overall'].backward()
     assert backbone.encoder.layers[0].layer_norm1.weight.grad.abs().sum() > 0
     assert backbone.encoder.layers[0].self_attn.q_proj.bias.grad is None
+
+
+def test_bias_sspanet_mil_actual_huggingface_clip_contract(monkeypatch):
+    transformers = pytest.importorskip('transformers')
+    config = transformers.CLIPVisionConfig(hidden_size=16, intermediate_size=32,
+        num_hidden_layers=2, num_attention_heads=2, image_size=28, patch_size=7)
+    backbone = transformers.CLIPVisionModel(config).vision_model
+    monkeypatch.setattr(BiasSSPANetMILDetector, 'build_backbone', lambda self, cfg: backbone)
+    model = BiasSSPANetMILDetector(dict(mil_topk=4))
+    data = dict(image=torch.randn(2, 3, 28, 28), label=torch.tensor([0, 1]))
+    out = model(data)
+    assert out['feat'].shape == (2, 16) and out['patch_logits'].shape == (2, 4, 4)
+    model.get_losses(data, out)['overall'].backward()
+    # In Bias tuning (BitFit): LayerNorm weights frozen, LayerNorm biases trainable
+    assert backbone.encoder.layers[0].layer_norm1.weight.requires_grad is False
+    assert backbone.encoder.layers[0].layer_norm1.weight.grad is None
+    assert backbone.encoder.layers[0].layer_norm1.bias.requires_grad is True
+    assert backbone.encoder.layers[0].layer_norm1.bias.grad.abs().sum() > 0
+    # Self-attention weights frozen, biases trainable
+    assert backbone.encoder.layers[0].self_attn.q_proj.weight.requires_grad is False
+    assert backbone.encoder.layers[0].self_attn.q_proj.weight.grad is None
+    assert backbone.encoder.layers[0].self_attn.q_proj.bias.requires_grad is True
+    assert backbone.encoder.layers[0].self_attn.q_proj.bias.grad.abs().sum() > 0
+    # MLP weights frozen, biases trainable
+    assert backbone.encoder.layers[0].mlp.fc1.weight.requires_grad is False
+    assert backbone.encoder.layers[0].mlp.fc1.weight.grad is None
+    assert backbone.encoder.layers[0].mlp.fc1.bias.requires_grad is True
+    assert backbone.encoder.layers[0].mlp.fc1.bias.grad.abs().sum() > 0
 
 
 def test_actual_width_official_block():
@@ -233,11 +369,76 @@ def test_dataset_val_sampling_and_missing_image(tmp_path, mode, frame_limit):
         dataset[1]
 
 
-def test_config_alias():
+def test_config_bias_sspanet_mil():
     import yaml
-    with (ROOT / 'training/config/detector/biasln.yaml').open() as stream:
+    from metrics.registry import DETECTOR
+    with (ROOT / 'training/config/detector/bias_sspanet_mil.yaml').open() as stream:
         cfg = yaml.safe_load(stream)
-    assert cfg['model_name'] in ('ln_sspanet_mil', 'biasln')
+    with (ROOT / 'training/config/detector/ln_sspanet_mil.yaml').open() as ref_stream:
+        ln_cfg = yaml.safe_load(ref_stream)
+    assert cfg['model_name'] == 'bias_sspanet_mil'
+    assert cfg['clip_model_name'] == 'openai/clip-vit-large-patch14'
+    assert cfg['nEpochs'] == 10
+    assert cfg['weight_real'] == 1.0
+    assert cfg['weight_fake'] == 1.0
+    assert cfg['label_smoothing'] == 0.1
+    assert cfg['grad_clip_norm'] == 5.0
+    assert cfg['lr_scheduler'] == 'cosine'
+    assert cfg['use_patch'] is True
+    assert cfg['use_sspanet'] is True
+    assert cfg['lambda_mil'] == 0.3
+    assert cfg['mil_topk'] == 16
+    assert cfg['fusion_alpha_init'] == 0.1
+    assert DETECTOR[cfg['model_name']] is BiasSSPANetMILDetector
+    # Full hyperparameter parity check with ln_sspanet_mil.yaml
+    for k in ln_cfg:
+        if k == 'model_name':
+            continue
+        assert k in cfg, f"Key '{k}' missing in bias_sspanet_mil.yaml"
+        assert cfg[k] == ln_cfg[k], f"Mismatch for key '{k}': {cfg[k]} vs {ln_cfg[k]}"
+
+
+def test_bias_sspanet_mil_trainer_smoke(bias_sspanet_mil_detector, tmp_path):
+    from trainer.trainer import Trainer
+    from training.test import evaluate
+    class Data(torch.utils.data.Dataset):
+        data_dict = {'image': ['real/a/0.png', 'fake/a/0.png', 'real/b/0.png', 'fake/b/0.png']}
+        def __len__(self):
+            return 4
+        def __getitem__(self, i):
+            return dict(image=torch.ones(3, 8, 8) * (i + 1), label=torch.tensor(i % 2))
+    loader = torch.utils.data.DataLoader(Data(), batch_size=2)
+    config = dict(cuda=False, ddp=False, model_name='bias_sspanet_mil', log_dir=str(tmp_path),
+                  optimizer={'type': 'adam'}, selection_dataset='source', validation_split='val',
+                  log_interval=1, save_ckpt=True, grad_clip_norm=5.)
+    trainer = Trainer(config, bias_sspanet_mil_detector, torch.optim.Adam([p for p in bias_sspanet_mil_detector.parameters() if p.requires_grad], lr=.001),
+                      None, logging.getLogger('test'), time_now='smoke_bias')
+    trainer.train_epoch(0, loader, {'source': loader})
+    checkpoint = tmp_path / 'bias_sspanet_mil_smoke_bias/validation/source/ckpt_best.pth'
+    assert checkpoint.exists()
+    state = safe_torch_load(checkpoint)
+    assert state.get('architecture') == 'bias_sspanet_mil_v1'
+    bias_sspanet_mil_detector.load_state_dict(state['state_dict'], strict=True)
+    result, arrays = evaluate(bias_sspanet_mil_detector.eval(), loader, torch.device('cpu'), max_samples=3, patch_limit=2)
+    assert result['n'] == 3 and len(arrays['image_names']) == 3
+    assert arrays['patch_prob'].shape == (2, 4, 4)
+    assert (tmp_path / 'bias_sspanet_mil_smoke_bias/train.jsonl').exists()
+    import json
+    train_lines = [json.loads(line) for line in (tmp_path / 'bias_sspanet_mil_smoke_bias/train.jsonl').read_text().strip().split('\n')]
+    assert len(train_lines) > 0
+    assert 'grad_backbone_bias' in train_lines[0]
+    assert 'grad_backbone_ln' not in train_lines[0]
+    assert 'grad_head' in train_lines[0]
+    assert 'grad_sspanet' in train_lines[0]
+    assert 'grad_patch_head' in train_lines[0]
+    assert 'grad_fusion_alpha' in train_lines[0]
+    trainable_params_path = tmp_path / 'bias_sspanet_mil_smoke_bias/trainable_parameters.json'
+    assert trainable_params_path.exists()
+    trainable_data = json.loads(trainable_params_path.read_text())
+    assert 'backbone_bias' in trainable_data
+    assert 'backbone_ln' not in trainable_data
+    for writer in trainer.writers.values():
+        writer.close()
 
 
 def test_safe_torch_load_compatibility(tmp_path, monkeypatch):
@@ -265,10 +466,12 @@ def test_safe_torch_load_compatibility(tmp_path, monkeypatch):
         assert res_fallback['a'] == 1
 
 
-def test_biasln_detector_shim():
-    import detectors.biasln_detector as shim
+def test_bias_sspanet_mil_detector_shim():
+    import detectors.bias_sspanet_mil_detector as shim
     assert shim.LNSSPANetMILDetector is LNSSPANetMILDetector
-    assert shim.BiasLNDetector is LNSSPANetMILDetector
+    assert shim.BiasSSPANetMILDetector is BiasSSPANetMILDetector
+    assert shim.BiasSSPANetMILDetector is not LNSSPANetMILDetector
+    assert issubclass(shim.BiasSSPANetMILDetector, LNSSPANetMILDetector)
     assert shim.topk_mil_logits is topk_mil_logits
 
 
@@ -286,7 +489,7 @@ def test_ablation_configs():
 
 
 def test_requirements_files_consistency():
-    for name in ('requirements-ln-sspanet-mil.txt', 'requirements-biasln.txt', 'requirements.txt'):
+    for name in ('requirements-ln-sspanet-mil.txt', 'requirements-bias-sspanet-mil.txt', 'requirements.txt'):
         path = ROOT / name
         assert path.is_file()
         content = path.read_text(encoding='utf-8')

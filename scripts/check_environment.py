@@ -41,7 +41,7 @@ def main():
             pass
     cfg_path = ROOT / 'training/config/detector/ln_sspanet_mil.yaml'
     if not cfg_path.exists():
-        cfg_path = ROOT / 'training/config/detector/biasln.yaml'
+        cfg_path = ROOT / 'training/config/detector/bias_sspanet_mil.yaml'
     with cfg_path.open() as stream:
         config = yaml.safe_load(stream)
     with tempfile.TemporaryDirectory(prefix='dflab-check-') as directory:

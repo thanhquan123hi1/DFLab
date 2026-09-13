@@ -58,7 +58,12 @@ class Trainer:
         norms = defaultdict(list)
         for name, param in self.module.named_parameters():
             if param.requires_grad and param.grad is not None:
-                group = 'backbone_ln' if name.startswith('backbone.') else name.split('.')[0]
+                if name.startswith('backbone.'):
+                    is_bias = ('backbone_bias' in getattr(self.module, 'trainable_counts', {}) or
+                               'bias' in self.config.get('model_name', ''))
+                    group = 'backbone_bias' if is_bias else 'backbone_ln'
+                else:
+                    group = name.split('.')[0]
                 norms[group].append(param.grad.detach().float().norm())
         for group, values in norms.items():
             losses['grad_' + group] = torch.stack(values).norm()
@@ -117,9 +122,10 @@ class Trainer:
 
     def save_checkpoint(self, path, epoch, score=None):
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        arch = f"{self.config.get('model_name', 'ln_sspanet_mil')}_v1"
         torch.save({'state_dict': self.module.state_dict(), 'config': self.config,
                     'epoch': epoch, 'selection_score': score,
-                    'architecture': 'ln_sspanet_mil_v1'}, path)
+                    'architecture': arch}, path)
         self.logger.info('Saved checkpoint: %s', path)
 
     @torch.no_grad()

@@ -7,7 +7,10 @@ from torch.nn import functional as F
 from metrics.base_metrics_class import calculate_metrics_for_train
 from .base_detector import AbstractDetector
 from .modules.sspanet import ATTN_Block
-from detectors import DETECTOR
+try:
+    from detectors import DETECTOR
+except (ImportError, ModuleNotFoundError):
+    from metrics.registry import DETECTOR
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +24,6 @@ def topk_mil_logits(patch_logits, k):
 
 
 @DETECTOR.register_module(module_name='ln_sspanet_mil')
-@DETECTOR.register_module(module_name='biasln')
 class LNSSPANetMILDetector(AbstractDetector):
     def __init__(self, config=None):
         super().__init__()
@@ -148,4 +150,17 @@ class LNSSPANetMILDetector(AbstractDetector):
 
 
 # Backward compatibility alias
-BiasLNDetector = LNSSPANetMILDetector
+def __getattr__(name):
+    if name in ('BiasSSPANetMILDetector', 'BiasLNDetector'):
+        from .bias_sspanet_mil_detector import BiasSSPANetMILDetector, BiasLNDetector
+        globals()['BiasSSPANetMILDetector'] = BiasSSPANetMILDetector
+        globals()['BiasLNDetector'] = BiasLNDetector
+        return globals()[name]
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+
+def __dir__():
+    return sorted(list(globals().keys()) + ['BiasSSPANetMILDetector', 'BiasLNDetector'])
+
+
+__all__ = ['LNSSPANetMILDetector', 'BiasSSPANetMILDetector', 'BiasLNDetector', 'topk_mil_logits']

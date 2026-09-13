@@ -8,6 +8,7 @@ sys.path.append(parent_dir)
 sys.path.append(project_root_dir)
 
 from metrics.registry import DETECTOR
-from .ln_sspanet_mil_detector import LNSSPANetMILDetector, BiasLNDetector
+from .ln_sspanet_mil_detector import LNSSPANetMILDetector
+from .bias_sspanet_mil_detector import BiasSSPANetMILDetector, BiasLNDetector
 
-__all__ = ['DETECTOR', 'LNSSPANetMILDetector', 'BiasLNDetector']
+__all__ = ['DETECTOR', 'LNSSPANetMILDetector', 'BiasSSPANetMILDetector', 'BiasLNDetector']
