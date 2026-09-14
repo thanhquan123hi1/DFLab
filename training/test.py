@@ -113,6 +113,7 @@ def main():
     torch.manual_seed(seed)
     device = torch.device('cuda' if config.get('cuda', True) and torch.cuda.is_available() else 'cpu')
     model = DETECTOR[config['model_name']](config).to(device)
+    state = checkpoint.get('state_dict', checkpoint)
     state = {k[7:] if k.startswith('module.') else k: v for k, v in state.items()}
     # Allow loading checkpoints from older versions that included fusion_alpha
     model_keys = set(model.state_dict().keys())

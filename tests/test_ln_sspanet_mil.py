@@ -576,4 +576,20 @@ def test_bilateral_dynamic_gating(bias_sspanet_mil_detector):
     assert 'Fake: 0.42' in rep
 
 
+def test_checkpoint_loading_state_dict(tmp_path):
+    """Ensure checkpoints saved by trainer can be prepared by test.py logic without UnboundLocalError."""
+    dummy_state = {'module.layer.weight': torch.randn(2, 2), 'layer.bias': torch.randn(2)}
+    ckpt_path = tmp_path / 'ckpt.pth'
+    torch.save({'state_dict': dummy_state, 'config': {'model_name': 'test'}}, ckpt_path)
+
+    checkpoint = safe_torch_load(ckpt_path)
+    state = checkpoint.get('state_dict', checkpoint)
+    state = {k[7:] if k.startswith('module.') else k: v for k, v in state.items()}
+
+    assert 'layer.weight' in state
+    assert 'layer.bias' in state
+    assert not any(k.startswith('module.') for k in state)
+
+
+
 
