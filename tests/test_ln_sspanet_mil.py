@@ -119,7 +119,7 @@ def test_gradients_and_freezing(detector, labels):
     for group in [detector.sspanet, detector.patch_head, detector.head]:
         assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in group.parameters())
     assert detector.backbone.layer_norm.weight.grad.abs().sum() > 0
-    assert detector.fusion_alpha.grad is not None
+    assert not hasattr(detector, 'fusion_alpha')
     detector.eval()
     with torch.no_grad():
         torch.testing.assert_close(detector(data)['prob'], detector(data, inference=True)['prob'])
@@ -162,7 +162,7 @@ def test_bias_sspanet_mil_gradients_and_freezing(bias_sspanet_mil_detector, labe
     assert bias_sspanet_mil_detector.backbone.mix.bias.requires_grad is True
     assert bias_sspanet_mil_detector.backbone.mix.bias.grad.abs().sum() > 0
 
-    # Detector auxiliary modules: sspanet, patch_head, head, fusion_alpha are trainable and receive gradient
+    # Detector auxiliary modules: sspanet, patch_head, head are trainable and receive gradient
     for group_name, group in [('sspanet', bias_sspanet_mil_detector.sspanet),
                               ('patch_head', bias_sspanet_mil_detector.patch_head),
                               ('head', bias_sspanet_mil_detector.head)]:
@@ -170,8 +170,7 @@ def test_bias_sspanet_mil_gradients_and_freezing(bias_sspanet_mil_detector, labe
             f"Expected gradient in {group_name}"
     assert bias_sspanet_mil_detector.head.weight.grad is not None and bias_sspanet_mil_detector.head.weight.grad.abs().sum() > 0
     assert bias_sspanet_mil_detector.head.bias.grad is not None and bias_sspanet_mil_detector.head.bias.grad.abs().sum() > 0
-    assert bias_sspanet_mil_detector.fusion_alpha.grad is not None
-    assert bias_sspanet_mil_detector.fusion_alpha.grad.abs().sum() > 0
+    assert not hasattr(bias_sspanet_mil_detector, 'fusion_alpha')
 
     bias_sspanet_mil_detector.eval()
     with torch.no_grad():
@@ -212,7 +211,7 @@ def test_bias_sspanet_mil_trainable_counts(bias_sspanet_mil_detector):
     assert 'head' in counts
     assert 'sspanet' in counts
     assert 'patch_head' in counts
-    assert 'fusion_alpha' in counts
+    assert 'fusion_alpha' not in counts
     assert sum(p.numel() for p in bias_sspanet_mil_detector.parameters() if p.requires_grad) == sum(counts.values())
 
 
@@ -431,7 +430,7 @@ def test_bias_sspanet_mil_trainer_smoke(bias_sspanet_mil_detector, tmp_path):
     assert 'grad_head' in train_lines[0]
     assert 'grad_sspanet' in train_lines[0]
     assert 'grad_patch_head' in train_lines[0]
-    assert 'grad_fusion_alpha' in train_lines[0]
+    assert 'grad_fusion_alpha' not in train_lines[0]
     trainable_params_path = tmp_path / 'bias_sspanet_mil_smoke_bias/trainable_parameters.json'
     assert trainable_params_path.exists()
     trainable_data = json.loads(trainable_params_path.read_text())

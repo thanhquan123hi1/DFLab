@@ -104,9 +104,11 @@ def main():
     torch.manual_seed(seed)
     device = torch.device('cuda' if config.get('cuda', True) and torch.cuda.is_available() else 'cpu')
     model = DETECTOR[config['model_name']](config).to(device)
-    state = checkpoint.get('state_dict', checkpoint)
     state = {k[7:] if k.startswith('module.') else k: v for k, v in state.items()}
-    model.load_state_dict(state, strict=True)
+    # Allow loading checkpoints from older versions that included fusion_alpha
+    model_keys = set(model.state_dict().keys())
+    filtered_state = {k: v for k, v in state.items() if k in model_keys}
+    model.load_state_dict(filtered_state, strict=True)
     model.eval()
     from dataset.abstract_dataset import DeepfakeAbstractBaseDataset
     out_dir = args.output_dir or os.path.join(os.path.dirname(os.path.abspath(args.weights_path)), 'evaluation')

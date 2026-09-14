@@ -216,16 +216,16 @@ Arguments:
 
 Dataset names can be changed according to the JSON metadata available in `dataset_json_folder`.
 
-By default, the training code uses `log_dir` from `training/config/train_config.yaml`. Checkpoints are saved by the trainer under:
+By default, the training code uses `log_dir` from `training/config/train_config.yaml`. The experiment log directory is named `<model_name>[_<task_target>]_<seed>_<time_vn>` (e.g. `ln_sspanet_mil_1024_12h55` with Vietnam time UTC+7). Checkpoints are saved by the trainer under:
 
 ```text
-<log_dir>/<model_name>_<timestamp>/test/<dataset_name>/ckpt_best.pth
+<log_dir>/<model_name>_<seed>_<time_vn>/test/<dataset_name>/ckpt_best.pth
 ```
 
 When `save_avg: true`, an averaged validation checkpoint may also be saved under:
 
 ```text
-<log_dir>/<model_name>_<timestamp>/test/avg/ckpt_best.pth
+<log_dir>/<model_name>_<seed>_<time_vn>/test/avg/ckpt_best.pth
 ```
 
 ## Distributed Training / Multi-GPU Training

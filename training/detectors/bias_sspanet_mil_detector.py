@@ -15,8 +15,7 @@ class BiasSSPANetMILDetector(LNSSPANetMILDetector):
     Bias-tuning (BitFit) variant of LNSSPANetMILDetector.
 
     Freezes all weights in the backbone CLIP ViT and only optimizes bias parameters,
-    along with the auxiliary detector modules (SSPANet, classifier head, patch head,
-    and fusion_alpha).
+    along with the auxiliary detector modules (SSPANet, classifier head, and patch head).
     """
 
     def _setup_trainable_params(self):

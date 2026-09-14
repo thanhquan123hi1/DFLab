@@ -12,9 +12,29 @@ from metrics.base_metrics_class import Recorder
 from metrics.utils import binary_metrics, get_test_metrics, write_json
 
 
+def get_vietnam_time_str():
+    vn_tz = datetime.timezone(datetime.timedelta(hours=7))
+    return datetime.datetime.now(vn_tz).strftime('%Hh%M')
+
+
+def get_run_name(config, time_now=None):
+    model_name = config.get('model_name', 'model')
+    task = f"_{config['task_target']}" if config.get('task_target') else ''
+    model_part = f"{model_name}{task}"
+
+    if time_now in ('smoke', 'smoke_bias'):
+        return f"{model_part}_{time_now}"
+
+    stamp = time_now or get_vietnam_time_str()
+    seed = config.get('manualSeed', config.get('seed'))
+    if seed is not None:
+        return f"{model_part}_{seed}_{stamp}"
+    return f"{model_part}_{stamp}"
+
+
 class Trainer:
     def __init__(self, config, model, optimizer, scheduler, logger, metric_scoring='auc',
-                 time_now=None, swa_model=None):
+                 time_now=None, swa_model=None, log_dir=None):
         if config.get('SWA') or config['optimizer']['type'] == 'sam':
             raise ValueError('This audited LN+SSPANet trainer supports Adam/SGD; SAM/SWA need separate BN validation')
         self.config, self.optimizer, self.scheduler = config, optimizer, scheduler
@@ -27,9 +47,10 @@ class Trainer:
         self.writers = {}
         self.best_metrics_all_time = {}
         self.best_score = float('inf') if metric_scoring == 'eer' else -float('inf')
-        stamp = time_now or datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-        task = f"_{config['task_target']}" if config.get('task_target') is not None else ''
-        self.log_dir = os.path.join(config['log_dir'], config['model_name'] + task + '_' + stamp)
+        if log_dir is not None:
+            self.log_dir = log_dir
+        else:
+            self.log_dir = os.path.join(config['log_dir'], get_run_name(config, time_now=time_now))
         if self.rank == 0:
             os.makedirs(self.log_dir, exist_ok=True)
             write_json(os.path.join(self.log_dir, 'config.json'), config)

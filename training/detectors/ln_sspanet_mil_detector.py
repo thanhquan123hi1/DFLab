@@ -40,7 +40,6 @@ class LNSSPANetMILDetector(AbstractDetector):
         if self.use_patch:
             self.sspanet = ATTN_Block(dim) if self.use_sspanet else nn.Identity()
             self.patch_head = nn.Conv2d(dim, 1, 1)
-            self.fusion_alpha = nn.Parameter(torch.tensor(float(self.config.get('fusion_alpha_init', 0.1))))
             if self.mil_weight == 0:
                 self.patch_head.requires_grad_(False)
         self.build_loss(self.config)
@@ -86,11 +85,8 @@ class LNSSPANetMILDetector(AbstractDetector):
         if tokens.shape[1] != h * w:
             raise ValueError('Patch token count does not match image grid')
         patch_map = tokens.transpose(1, 2).reshape(image.shape[0], -1, h, w)
-        # Published block unchanged: no ReLU, bottleneck, or replacement normalization.
         refined = self.sspanet(patch_map)
-        local = refined.mean(dim=(2, 3))
-        fused = F.normalize(cls, dim=1, eps=1e-6) + self.fusion_alpha * F.normalize(local, dim=1, eps=1e-6)
-        return fused, cls, refined, patch_map
+        return cls, cls, refined, patch_map
 
     def features(self, data_dict):
         return self._extract(data_dict)[0]
@@ -99,11 +95,12 @@ class LNSSPANetMILDetector(AbstractDetector):
         return self.head(features)
 
     def forward(self, data_dict, inference=False):
-        fused, cls, refined, patch_map = self._extract(data_dict)
-        normalized = F.normalize(fused, dim=1, eps=1e-6)
+        _, cls, refined, patch_map = self._extract(data_dict)
+        normalized = F.normalize(cls, dim=1, eps=1e-6)
         logits = self.classifier(normalized)
-        result = {'cls': logits, 'prob': logits.softmax(1)[:, 1], 'feat': fused, 'feat_norm': normalized,
-                  'cls_only_prob': self.head(F.normalize(cls, dim=1, eps=1e-6)).softmax(1)[:, 1]}
+        prob = logits.softmax(1)[:, 1]
+        result = {'cls': logits, 'prob': prob, 'feat': cls, 'feat_norm': normalized,
+                  'cls_only_prob': prob}
         if refined is not None:
             patch_logits = self.patch_head(refined).squeeze(1)
             mil_logits = topk_mil_logits(patch_logits, self.mil_topk)
@@ -112,7 +109,6 @@ class LNSSPANetMILDetector(AbstractDetector):
                 probs = patch_logits.detach().sigmoid().flatten(1)
                 mass = probs / probs.sum(1, keepdim=True).clamp_min(1e-6)
                 result['diagnostics'] = {
-                    'fusion_alpha': self.fusion_alpha.detach(),
                     'patch_probability_mean': probs.mean(),
                     'patch_probability_std': probs.std(dim=1, unbiased=False).mean(),
                     'patch_entropy': (-(mass * mass.clamp_min(1e-8).log()).sum(1) / math.log(max(2, probs.shape[1]))).mean(),
