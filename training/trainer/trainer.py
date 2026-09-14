@@ -10,6 +10,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from metrics.base_metrics_class import Recorder
 from metrics.utils import binary_metrics, get_test_metrics, write_json
+from metrics.reporting import compact_training_metrics
 
 
 def get_vietnam_time_str():
@@ -53,8 +54,9 @@ class Trainer:
             self.log_dir = os.path.join(config['log_dir'], get_run_name(config, time_now=time_now))
         if self.rank == 0:
             os.makedirs(self.log_dir, exist_ok=True)
-            write_json(os.path.join(self.log_dir, 'config.json'), config)
-            write_json(os.path.join(self.log_dir, 'trainable_parameters.json'), model.trainable_counts)
+            write_json(os.path.join(self.log_dir, 'run.json'),
+                       dict(config=config, trainable_parameters=model.trainable_counts,
+                            run_name=os.path.basename(os.path.normpath(self.log_dir)), schema_version=2))
 
     @property
     def module(self):
@@ -124,8 +126,8 @@ class Trainer:
                     values['images_per_second'] = len(labels) / max(time.monotonic() - start, 1e-6)
                     if self.device.type == 'cuda':
                         values['peak_vram_mb'] = torch.cuda.max_memory_allocated(self.device) / 2**20
-                    self.logger.info('train epoch=%d step=%d %s', epoch, step, values)
-                    write_json(os.path.join(self.log_dir, 'train.jsonl'), dict(epoch=epoch, step=step, rank=0, **values), append=True)
+                    self.logger.info('train epoch=%d step=%d %s', epoch, step, compact_training_metrics(values))
+                    write_json(os.path.join(self.log_dir, 'history.jsonl'), dict(phase='train', epoch=epoch, step=step, rank=0, **values), append=True)
                     for key, value in values.items():
                         self.get_writer('train', 'all').add_scalar(key, value, step)
                 records.clear()
@@ -146,7 +148,8 @@ class Trainer:
         arch = f"{self.config.get('model_name', 'ln_sspanet_mil')}_v1"
         torch.save({'state_dict': self.module.state_dict(), 'config': self.config,
                     'epoch': epoch, 'selection_score': score,
-                    'architecture': arch}, path)
+                    'architecture': arch,
+                    'run_name': os.path.basename(os.path.normpath(self.log_dir))}, path)
         self.logger.info('Saved checkpoint: %s', path)
 
     @torch.no_grad()
@@ -190,10 +193,10 @@ class Trainer:
             raise ValueError('selection_dataset must be one of validation_dataset')
         for key, loader in test_data_loaders.items():
             result, losses, arrays = self.test_one_dataset(loader)
-            self.logger.info('validation epoch=%d dataset=%s metrics=%s losses=%s',
-                             epoch, key, {k: v for k, v in result.items() if k not in ('pred', 'label')}, losses)
-            write_json(os.path.join(self.log_dir, 'validation.jsonl'),
-                       dict(epoch=epoch, dataset=key, split=self.config.get('validation_split', 'val'), metrics=result, losses=losses), append=True)
+            self.logger.info('validation epoch=%d dataset=%s %s',
+                             epoch, key, compact_training_metrics(dict(losses, **result)))
+            write_json(os.path.join(self.log_dir, 'history.jsonl'),
+                       dict(phase='validation', epoch=epoch, dataset=key, split=self.config.get('validation_split', 'val'), metrics=result, losses=losses), append=True)
             writer = self.get_writer('validation', key)
             for name, value in result.items():
                 if name not in ('pred', 'label'):

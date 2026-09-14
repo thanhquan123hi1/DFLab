@@ -258,13 +258,13 @@ def test_trainer_checkpoint_diagnostics_and_test_cap(detector, tmp_path):
     result, arrays = evaluate(detector.eval(), loader, torch.device('cpu'), max_samples=3, patch_limit=2)
     assert result['n'] == 3 and len(arrays['image_names']) == 3
     assert arrays['patch_prob'].shape == (2, 4, 4)
-    assert (tmp_path / 'ln_sspanet_mil_smoke/train.jsonl').exists()
+    assert (tmp_path / 'ln_sspanet_mil_smoke/history.jsonl').exists()
     import json
-    ln_train_lines = [json.loads(line) for line in (tmp_path / 'ln_sspanet_mil_smoke/train.jsonl').read_text().strip().split('\n')]
+    ln_train_lines = [json.loads(line) for line in (tmp_path / 'ln_sspanet_mil_smoke/history.jsonl').read_text().strip().split('\n')]
     assert len(ln_train_lines) > 0
     assert 'grad_backbone_ln' in ln_train_lines[0]
     assert 'grad_backbone_bias' not in ln_train_lines[0]
-    ln_trainable_data = json.loads((tmp_path / 'ln_sspanet_mil_smoke/trainable_parameters.json').read_text())
+    ln_trainable_data = json.loads((tmp_path / 'ln_sspanet_mil_smoke/run.json').read_text())['trainable_parameters']
     assert 'backbone_ln' in ln_trainable_data
     assert 'backbone_bias' not in ln_trainable_data
     for writer in trainer.writers.values():
@@ -421,9 +421,9 @@ def test_bias_sspanet_mil_trainer_smoke(bias_sspanet_mil_detector, tmp_path):
     result, arrays = evaluate(bias_sspanet_mil_detector.eval(), loader, torch.device('cpu'), max_samples=3, patch_limit=2)
     assert result['n'] == 3 and len(arrays['image_names']) == 3
     assert arrays['patch_prob'].shape == (2, 4, 4)
-    assert (tmp_path / 'bias_sspanet_mil_smoke_bias/train.jsonl').exists()
+    assert (tmp_path / 'bias_sspanet_mil_smoke_bias/history.jsonl').exists()
     import json
-    train_lines = [json.loads(line) for line in (tmp_path / 'bias_sspanet_mil_smoke_bias/train.jsonl').read_text().strip().split('\n')]
+    train_lines = [json.loads(line) for line in (tmp_path / 'bias_sspanet_mil_smoke_bias/history.jsonl').read_text().strip().split('\n')]
     assert len(train_lines) > 0
     assert 'grad_backbone_bias' in train_lines[0]
     assert 'grad_backbone_ln' not in train_lines[0]
@@ -431,9 +431,9 @@ def test_bias_sspanet_mil_trainer_smoke(bias_sspanet_mil_detector, tmp_path):
     assert 'grad_sspanet' in train_lines[0]
     assert 'grad_patch_head' in train_lines[0]
     assert 'grad_fusion_alpha' not in train_lines[0]
-    trainable_params_path = tmp_path / 'bias_sspanet_mil_smoke_bias/trainable_parameters.json'
+    trainable_params_path = tmp_path / 'bias_sspanet_mil_smoke_bias/run.json'
     assert trainable_params_path.exists()
-    trainable_data = json.loads(trainable_params_path.read_text())
+    trainable_data = json.loads(trainable_params_path.read_text())['trainable_parameters']
     assert 'backbone_bias' in trainable_data
     assert 'backbone_ln' not in trainable_data
     for writer in trainer.writers.values():

@@ -110,3 +110,13 @@ def test_evaluation_four_outputs(model):
     text = format_compact_test_report('tiny', result)
     assert all(label in text for label in ('Fusion:', 'CLS:', 'MIL:', 'Ensemble:'))
     assert 'Adaptive BDG' not in text
+    assert 'Fusion' in text
+    assert '[Ablation Leaderboard - Ranked by Video AUC]:' in text
+
+    from metrics.reporting import _get_metric_rows
+    rows = _get_metric_rows(result, 'bias_gmil', 1024, 'tiny', 'ckpt.pth', 0.5)
+    branches = set(r['branch'] for r in rows)
+    assert 'learned_fusion' in branches
+    assert 'ensemble' in branches
+    assert 'mil' in branches
+    assert 'cls' in branches

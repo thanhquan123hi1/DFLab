@@ -23,6 +23,44 @@ def topk_mil_logits(patch_logits, k):
     return flat.topk(k, dim=1).values.mean(dim=1)
 
 
+def compute_dynamic_gating(base_prob, patch_logits, w_min=0.05, w_max=0.85, tau=0.15):
+    """
+    Bilateral Dynamic Gating (BDG):
+    Dynamically calculates sample-level MIL decision weight w(x) in [w_min, w_max].
+    - Base confidence reflects distance from decision boundary: 2 * |base_prob - 0.5|
+    - MIL confidence reflects patch peak salience and concentration: salience * (1 - entropy)
+    """
+    if torch.is_tensor(base_prob) and torch.is_tensor(patch_logits):
+        base_conf = 2.0 * torch.abs(base_prob.detach() - 0.5)
+        probs = patch_logits.detach().sigmoid().flatten(1)
+        if base_conf.device != probs.device:
+            base_conf = base_conf.to(probs.device)
+        salience = probs.max(dim=1).values - probs.mean(dim=1)
+        mass = probs / probs.sum(dim=1, keepdim=True).clamp_min(1e-6)
+        entropy = -(mass * mass.clamp_min(1e-8).log()).sum(dim=1) / math.log(max(2, probs.shape[1]))
+        mil_conf = salience * (1.0 - entropy).clamp(min=0.0, max=1.0)
+        ratio = (mil_conf - 0.5 * base_conf) / max(1e-6, tau)
+        w = w_min + (w_max - w_min) * torch.sigmoid(ratio)
+        return w, base_conf, mil_conf
+    else:
+        import numpy as np
+        base_prob = np.asarray(base_prob, dtype=float)
+        patch_logits = np.asarray(patch_logits, dtype=float)
+        base_conf = 2.0 * np.abs(base_prob - 0.5)
+        safe_logits = np.clip(patch_logits, -88.0, 88.0)
+        probs = 1.0 / (1.0 + np.exp(-safe_logits))
+        probs = probs.reshape(probs.shape[0], -1)
+        salience = probs.max(axis=1) - probs.mean(axis=1)
+        sum_mass = np.maximum(probs.sum(axis=1, keepdims=True), 1e-6)
+        mass = probs / sum_mass
+        safe_mass = np.maximum(mass, 1e-8)
+        entropy = -np.sum(mass * np.log(safe_mass), axis=1) / math.log(max(2, probs.shape[1]))
+        mil_conf = np.clip(salience * np.clip(1.0 - entropy, 0.0, 1.0), 0.0, 1.0)
+        ratio = np.clip((mil_conf - 0.5 * base_conf) / max(1e-6, tau), -88.0, 88.0)
+        w = w_min + (w_max - w_min) * (1.0 / (1.0 + np.exp(-ratio)))
+        return w, base_conf, mil_conf
+
+
 @DETECTOR.register_module(module_name='bias_sspanet_feat_mil')
 @DETECTOR.register_module(module_name='bias_sspanet_ff_mil')
 class BiasSSPANetFeatMILDetector(AbstractDetector):
@@ -47,6 +85,9 @@ class BiasSSPANetFeatMILDetector(AbstractDetector):
         if self.mil_weight < 0 or (not self.use_patch and self.mil_weight != 0):
             raise ValueError('lambda_mil must be nonnegative and zero when use_patch=false')
         self.head = nn.Linear(dim, 2)
+        self.gating_w_min = float(self.config.get('gating_w_min', 0.05))
+        self.gating_w_max = float(self.config.get('gating_w_max', 0.85))
+        self.gating_tau = float(self.config.get('gating_tau', 0.15))
         if self.use_patch:
             self.sspanet = ATTN_Block(dim) if self.use_sspanet else nn.Identity()
             self.patch_head = nn.Conv2d(dim, 1, 1)
@@ -107,6 +148,15 @@ class BiasSSPANetFeatMILDetector(AbstractDetector):
     def classifier(self, features):
         return self.head(features)
 
+    def compute_dynamic_gating(self, base_prob, patch_logits, w_min=None, w_max=None, tau=None):
+        w_min = self.gating_w_min if w_min is None else w_min
+        w_max = self.gating_w_max if w_max is None else w_max
+        tau = self.gating_tau if tau is None else tau
+        return compute_dynamic_gating(base_prob, patch_logits, w_min=w_min, w_max=w_max, tau=tau)
+
+    def _compute_dynamic_gating(self, cls_prob, patch_logits):
+        return self.compute_dynamic_gating(cls_prob, patch_logits)
+
     def forward(self, data_dict, inference=False):
         fused, cls, refined, patch_map = self._extract(data_dict)
         normalized = F.normalize(fused, dim=1, eps=1e-6)
@@ -122,16 +172,29 @@ class BiasSSPANetFeatMILDetector(AbstractDetector):
         if refined is not None:
             patch_logits = self.patch_head(refined).squeeze(1)
             mil_logits = topk_mil_logits(patch_logits, self.mil_topk)
+            mil_prob = mil_logits.sigmoid()
+            w_cls, _, _ = self.compute_dynamic_gating(cls_only_prob, patch_logits)
+            w_f, _, _ = self.compute_dynamic_gating(result['prob'], patch_logits)
+            bdg_cls_mil_prob = (1.0 - w_cls) * cls_only_prob + w_cls * mil_prob
+            bdg_f_mil_prob = (1.0 - w_f) * result['prob'] + w_f * mil_prob
             result.update(
                 patch_logits=patch_logits,
                 mil_logits=mil_logits,
-                mil_prob=mil_logits.sigmoid(),
+                mil_prob=mil_prob,
+                gating_w=w_cls,
+                gating_w_cls=w_cls,
+                gating_w_f=w_f,
+                bdg_cls_mil_prob=bdg_cls_mil_prob,
+                bdg_f_mil_prob=bdg_f_mil_prob,
             )
             with torch.no_grad():
                 probs = patch_logits.detach().sigmoid().flatten(1)
                 mass = probs / probs.sum(1, keepdim=True).clamp_min(1e-6)
                 result['diagnostics'] = {
                     'fusion_alpha': self.fusion_alpha.detach(),
+                    'gating_w_cls_mean': w_cls.detach().mean(),
+                    'gating_w_f_mean': w_f.detach().mean(),
+                    'gating_weight_mean': w_cls.detach().mean(),
                     'patch_probability_mean': probs.mean(),
                     'patch_probability_std': probs.std(dim=1, unbiased=False).mean(),
                     'patch_entropy': (-(mass * mass.clamp_min(1e-8).log()).sum(1) / math.log(max(2, probs.shape[1]))).mean(),
@@ -175,4 +238,4 @@ class BiasSSPANetFeatMILDetector(AbstractDetector):
 # Backward compatibility aliases
 BiasSSPANetFFMILDetector = BiasSSPANetFeatMILDetector
 
-__all__ = ['BiasSSPANetFeatMILDetector', 'BiasSSPANetFFMILDetector', 'topk_mil_logits']
+__all__ = ['BiasSSPANetFeatMILDetector', 'BiasSSPANetFFMILDetector', 'topk_mil_logits', 'compute_dynamic_gating']

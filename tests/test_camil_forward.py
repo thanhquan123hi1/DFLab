@@ -399,20 +399,20 @@ def test_camil_trainer_smoke(camil_detector, tmp_path):
     assert arrays['patch_prob'].shape == (2, 4, 4)
     assert arrays['attn_weights'].shape == (2, 1, 16)
 
-    # Verify all parameter groups logged in train.jsonl
-    train_log = tmp_path / 'camil_smoke/train.jsonl'
+    # Verify all parameter groups logged in history.jsonl
+    train_log = tmp_path / 'camil_smoke/history.jsonl'
     assert train_log.exists()
     lines = [json.loads(line) for line in train_log.read_text().strip().split('\n')]
     assert len(lines) > 0
     first_step = lines[0]
     for key in ('grad_backbone_bias', 'grad_fusion_gamma', 'grad_sspanet', 'grad_head',
                 'grad_patch_head', 'grad_cross_attn', 'grad_norm_cls', 'grad_norm_patch'):
-        assert key in first_step, f"Missing {key} in train.jsonl"
+        assert key in first_step, f"Missing {key} in history.jsonl"
 
-    # Verify trainable_parameters.json
-    trainable_json = tmp_path / 'camil_smoke/trainable_parameters.json'
+    # Verify run.json
+    trainable_json = tmp_path / 'camil_smoke/run.json'
     assert trainable_json.exists()
-    t_data = json.loads(trainable_json.read_text())
+    t_data = json.loads(trainable_json.read_text())['trainable_parameters']
     assert 'backbone_bias' in t_data
     assert 'cross_attn' in t_data
     assert 'norm_cls' in t_data
