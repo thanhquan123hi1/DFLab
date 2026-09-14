@@ -45,10 +45,18 @@ def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=
     if not count:
         raise ValueError('No samples evaluated')
     result = get_test_metrics(arrays['prob'], arrays['label'], names)
+    if getattr(model, 'config', {}).get('model_name') == 'bias_gmil':
+        result['learned_gate'] = True
     if 'gating_w' in arrays:
         gw = arrays['gating_w']
         lbl = arrays['label']
         result['gating_w_mean'] = float(np.mean(gw))
+        result['gating_w_std'] = float(np.std(gw))
+        for percentile in (5, 50, 95):
+            result[f'gating_w_p{percentile}'] = float(np.percentile(gw, percentile))
+        disagreement = (arrays['cls_only_prob'] >= .5) != (arrays['mil_prob'] >= .5)
+        if disagreement.any():
+            result['gating_w_disagreement'] = float(gw[disagreement].mean())
         if (lbl == 0).any():
             result['gating_w_real'] = float(np.mean(gw[lbl == 0]))
         if (lbl == 1).any():
@@ -88,7 +96,7 @@ def main():
     parser.add_argument('--max_samples', type=int)
     parser.add_argument('--patch_limit', type=int, default=32)
     parser.add_argument('--ensemble_weight', type=float, default=0.5,
-                        help='Weight for MIL branch in decision ensemble: (1-w)*Fusion + w*MIL (default: 0.5, negative to disable)')
+                        help='Weight for MIL branch in decision ensemble: (1-w)*CLS + w*MIL (default: 0.5, negative to disable)')
     args = parser.parse_args()
     if args.max_samples is not None and args.max_samples < 1:
         parser.error('--max_samples must be positive')
@@ -102,6 +110,7 @@ def main():
         for key in ('clip_model_name', 'use_patch', 'use_sspanet', 'lambda_mil', 'mil_topk',
                     'fusion_alpha_init', 'fusion_gamma_init', 'cross_attn_heads', 'cross_attn_dropout',
                     'label_smoothing', 'weight_real', 'weight_fake',
+                    'gate_hidden_dim', 'lambda_fusion', 'gating_w_min', 'gating_w_max', 'gating_tau',
                     'resolution', 'mean', 'std', 'model_name'):
             if key in checkpoint['config']:
                 config[key] = checkpoint['config'][key]

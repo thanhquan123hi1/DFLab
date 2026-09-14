@@ -107,6 +107,8 @@ def format_compact_test_report(name, result):
     ens_f_auc = result.get('ensemble_auc')
 
     v_auc_extra = []
+    if result.get('learned_gate'):
+        v_auc_extra.append(f"Fusion: {v_auc}")
     if ens_v_auc is not None and np.isfinite(ens_v_auc):
         v_auc_extra.append(f"Ensemble: {fmt_pct(ens_v_auc)}")
     if mil_v_auc is not None and np.isfinite(mil_v_auc):
@@ -116,6 +118,8 @@ def format_compact_test_report(name, result):
     v_auc_str = f"  ({ ' | '.join(v_auc_extra) })" if v_auc_extra else ""
 
     f_auc_extra = []
+    if result.get('learned_gate'):
+        f_auc_extra.append(f"Fusion: {f_auc}")
     if ens_f_auc is not None and np.isfinite(ens_f_auc):
         f_auc_extra.append(f"Ensemble: {fmt_pct(ens_f_auc)}")
     if mil_f_auc is not None and np.isfinite(mil_f_auc):
@@ -144,6 +148,8 @@ def format_compact_test_report(name, result):
     f_n = result.get('n', 'N/A')
 
     details_hdr = "[Secondary Details - Adaptive BDG]:" if result.get('gating_w_mean') is not None else "[Secondary Details]:"
+    if result.get('learned_gate'):
+        details_hdr = "[Secondary Details - Fusion (learned gate)]:"
     secondary = [
         details_hdr,
         f"  - Acc (Video/Frame)  : {v_acc} / {f_acc} (Real: {v_real}, Fake: {v_fake})",

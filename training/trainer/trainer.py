@@ -153,6 +153,7 @@ class Trainer:
     def test_one_dataset(self, loader):
         records = defaultdict(Recorder)
         pred, labels, local, cls = [], [], [], []
+        gating = []
         patch_examples = []
         example_count = 0
         for batch in loader:
@@ -163,6 +164,8 @@ class Trainer:
             pred.extend(output['prob'].cpu().tolist())
             labels.extend((data['label'] != 0).long().cpu().tolist())
             cls.extend(output['cls_only_prob'].cpu().tolist())
+            if output.get('gating_w') is not None:
+                gating.extend(output['gating_w'].cpu().tolist())
             if 'mil_prob' in output:
                 local.extend(output['mil_prob'].cpu().tolist())
             if 'patch_logits' in output and example_count < 16:
@@ -176,7 +179,7 @@ class Trainer:
             result.update({'mil_' + k: v for k, v in binary_metrics(labels, local).items()})
         return result, {k: r.average() for k, r in records.items()}, dict(
             prob=np.asarray(pred), label=np.asarray(labels), cls_only_prob=np.asarray(cls),
-            mil_prob=np.asarray(local), image_names=np.asarray(names),
+            mil_prob=np.asarray(local), image_names=np.asarray(names), gating_w=np.asarray(gating),
             patch_prob=np.concatenate(patch_examples) if patch_examples else np.empty((0,)),
             patch_image_names=np.asarray(names[:example_count]))
 

@@ -10,8 +10,9 @@ sys.path.append(project_root_dir)
 from metrics.registry import DETECTOR
 from .ln_sspanet_mil_detector import LNSSPANetMILDetector
 from .bias_sspanet_mil_detector import BiasSSPANetMILDetector, BiasLNDetector
+from .bias_gmil_detector import BiasGMILDetector
 from .camil_detector import CAMILDetector, BiasCAMILDetector
 from .ln_sspanet_mil_detector import topk_mil_logits
 
 __all__ = ['DETECTOR', 'LNSSPANetMILDetector', 'BiasSSPANetMILDetector', 'BiasLNDetector',
-           'CAMILDetector', 'BiasCAMILDetector', 'topk_mil_logits']
+           'CAMILDetector', 'BiasCAMILDetector', 'BiasGMILDetector', 'topk_mil_logits']

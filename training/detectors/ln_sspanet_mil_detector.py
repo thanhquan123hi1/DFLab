@@ -115,6 +115,9 @@ class LNSSPANetMILDetector(AbstractDetector):
         w = self.gating_w_min + (self.gating_w_max - self.gating_w_min) * torch.sigmoid(ratio)
         return w, cls_conf, mil_conf
 
+    def _fusion_gate(self, logits, cls_prob, patch_logits, mil_logits):
+        return self._compute_dynamic_gating(cls_prob, patch_logits)
+
     def forward(self, data_dict, inference=False):
         _, cls, refined, patch_map = self._extract(data_dict)
         normalized = F.normalize(cls, dim=1, eps=1e-6)
@@ -126,7 +129,7 @@ class LNSSPANetMILDetector(AbstractDetector):
             patch_logits = self.patch_head(refined).squeeze(1)
             mil_logits = topk_mil_logits(patch_logits, self.mil_topk)
             mil_prob = mil_logits.sigmoid()
-            w, cls_conf, mil_conf = self._compute_dynamic_gating(cls_prob, patch_logits)
+            w, cls_conf, mil_conf = self._fusion_gate(logits, cls_prob, patch_logits, mil_logits)
             adaptive_prob = (1.0 - w) * cls_prob + w * mil_prob
             result.update(
                 patch_logits=patch_logits,
