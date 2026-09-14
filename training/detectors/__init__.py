@@ -12,7 +12,9 @@ from .ln_sspanet_mil_detector import LNSSPANetMILDetector
 from .bias_sspanet_mil_detector import BiasSSPANetMILDetector, BiasLNDetector
 from .bias_gmil_detector import BiasGMILDetector
 from .camil_detector import CAMILDetector, BiasCAMILDetector
+from .bias_sspanet_feat_mil_detector import BiasSSPANetFeatMILDetector, BiasSSPANetFFMILDetector
 from .ln_sspanet_mil_detector import topk_mil_logits
 
 __all__ = ['DETECTOR', 'LNSSPANetMILDetector', 'BiasSSPANetMILDetector', 'BiasLNDetector',
+           'BiasSSPANetFeatMILDetector', 'BiasSSPANetFFMILDetector',
            'CAMILDetector', 'BiasCAMILDetector', 'BiasGMILDetector', 'topk_mil_logits']
