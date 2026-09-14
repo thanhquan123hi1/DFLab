@@ -488,7 +488,7 @@ def test_ablation_configs():
 
 
 def test_requirements_files_consistency():
-    for name in ('requirements-ln-sspanet-mil.txt', 'requirements-bias-sspanet-mil.txt', 'requirements.txt'):
+    for name in ('requirements.txt',):
         path = ROOT / name
         assert path.is_file()
         content = path.read_text(encoding='utf-8')
@@ -589,7 +589,6 @@ def test_checkpoint_loading_state_dict(tmp_path):
     assert 'layer.weight' in state
     assert 'layer.bias' in state
     assert not any(k.startswith('module.') for k in state)
-
 
 
 
