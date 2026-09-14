@@ -528,3 +528,52 @@ def test_eval_ensemble_sweep(tmp_path):
     assert 'CLS: 94.90%' in report
 
 
+def test_bilateral_dynamic_gating(bias_sspanet_mil_detector):
+    """Verify Bilateral Dynamic Gating bounds, behavior on noise vs peak artifacts, and report."""
+    from metrics.utils import format_compact_test_report
+    model = bias_sspanet_mil_detector
+    model.eval()
+
+    data = dict(image=torch.randn(4, 3, 8, 8), label=torch.tensor([0, 0, 1, 1]))
+    with torch.no_grad():
+        out = model(data)
+
+    assert 'gating_w' in out
+    w = out['gating_w']
+    assert w.shape == (4,)
+    assert (w >= model.gating_w_min).all() and (w <= model.gating_w_max).all()
+
+    # Check that adaptive prob satisfies (1 - w)*cls_prob + w*mil_prob
+    expected_prob = (1.0 - w) * out['cls_only_prob'] + w * out['mil_prob']
+    torch.testing.assert_close(out['prob'], expected_prob)
+
+    # Synthetic Scenario 1: Diffuse / Flat noise patches (DFDC style) -> w should be close to w_min
+    flat_patch_logits = torch.zeros(2, 4, 4)  # identical patches -> salience = 0
+    confident_cls = torch.tensor([0.05, 0.95])  # very confident CLS
+    w_noisy, cls_conf, mil_conf = model._compute_dynamic_gating(confident_cls, flat_patch_logits)
+    assert (mil_conf < 0.05).all()
+    assert (w_noisy < 0.15).all(), f"Expected w to drop near w_min, got {w_noisy}"
+
+    # Synthetic Scenario 2: Sharp localized anomaly (Celeb-DF style) with confused CLS -> w should leap near w_max
+    sharp_patch_logits = torch.full((1, 4, 4), -8.0)
+    sharp_patch_logits[0, 1, 1] = 8.0  # single smoking gun patch
+    confused_cls = torch.tensor([0.50])  # CLS is 50/50 confused
+    w_sharp, cls_conf2, mil_conf2 = model._compute_dynamic_gating(confused_cls, sharp_patch_logits)
+    assert mil_conf2.item() > 0.4
+    assert w_sharp.item() > 0.70, f"Expected w to leap near w_max, got {w_sharp.item()}"
+
+    # Verify report formatting with gating statistics
+    report_dict = dict(
+        video_auc=0.961, mil_video_auc=0.956, cls_only_video_auc=0.953,
+        auc=0.898, mil_auc=0.892, cls_only_auc=0.886,
+        video_eer=0.10, eer=0.18, n=4, video_n=2,
+        gating_w_mean=0.25, gating_w_real=0.08, gating_w_fake=0.42
+    )
+    rep = format_compact_test_report('Celeb-DF-v2', report_dict)
+    assert 'Gating Behavior' in rep
+    assert 'Mean w = 0.25' in rep
+    assert 'Real: 0.08' in rep
+    assert 'Fake: 0.42' in rep
+
+
+

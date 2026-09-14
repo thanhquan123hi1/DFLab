@@ -17,7 +17,7 @@ from metrics.utils import binary_metrics, get_test_metrics, write_json, format_c
 
 @torch.no_grad()
 def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=False, ensemble_weight=0.5):
-    values = {k: [] for k in ('prob', 'label', 'label_spe', 'cls_only_prob', 'mil_prob', 'feat')}
+    values = {k: [] for k in ('prob', 'label', 'label_spe', 'cls_only_prob', 'mil_prob', 'feat', 'gating_w')}
     patches, names, patch_names, attns = [], [], [], []
     count = 0
     global_names = loader.dataset.data_dict['image']
@@ -31,8 +31,8 @@ def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=
         names.extend(batch_names)
         values['label'].append((data['label'] != 0).long().cpu().numpy())
         values['label_spe'].append(data.get('label_spe', data['label']).cpu().numpy())
-        for key in ('prob', 'cls_only_prob', 'mil_prob', 'feat'):
-            if key in out and (key != 'feat' or save_feat):
+        for key in ('prob', 'cls_only_prob', 'mil_prob', 'feat', 'gating_w'):
+            if key in out and out[key] is not None and (key != 'feat' or save_feat):
                 values[key].append(out[key].cpu().numpy())
         take = min(remaining, max(0, patch_limit - len(patch_names)))
         if take and 'patch_logits' in out:
@@ -45,13 +45,22 @@ def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=
     if not count:
         raise ValueError('No samples evaluated')
     result = get_test_metrics(arrays['prob'], arrays['label'], names)
+    if 'gating_w' in arrays:
+        gw = arrays['gating_w']
+        lbl = arrays['label']
+        result['gating_w_mean'] = float(np.mean(gw))
+        if (lbl == 0).any():
+            result['gating_w_real'] = float(np.mean(gw[lbl == 0]))
+        if (lbl == 1).any():
+            result['gating_w_fake'] = float(np.mean(gw[lbl == 1]))
     for key in ('cls_only_prob', 'mil_prob'):
         if key in arrays:
             branch = get_test_metrics(arrays[key], arrays['label'], names)
             result.update({key.replace('_prob', '') + '_' + k: v for k, v in branch.items() if k not in ('pred', 'label')})
-    if 'mil_prob' in arrays and 'prob' in arrays and ensemble_weight is not None and ensemble_weight >= 0:
+    base_cls = arrays.get('cls_only_prob', arrays.get('prob'))
+    if 'mil_prob' in arrays and base_cls is not None and ensemble_weight is not None and ensemble_weight >= 0:
         ens_w = float(ensemble_weight)
-        ens_prob = (1.0 - ens_w) * arrays['prob'] + ens_w * arrays['mil_prob']
+        ens_prob = (1.0 - ens_w) * base_cls + ens_w * arrays['mil_prob']
         arrays['ensemble_prob'] = ens_prob
         ens_branch = get_test_metrics(ens_prob, arrays['label'], names)
         result.update({'ensemble_' + k: v for k, v in ens_branch.items() if k not in ('pred', 'label')})

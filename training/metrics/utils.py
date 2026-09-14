@@ -143,6 +143,25 @@ def format_compact_test_report(name, result):
     v_n = result.get('video_n', 'N/A')
     f_n = result.get('n', 'N/A')
 
+    details_hdr = "[Secondary Details - Adaptive BDG]:" if result.get('gating_w_mean') is not None else "[Secondary Details]:"
+    secondary = [
+        details_hdr,
+        f"  - Acc (Video/Frame)  : {v_acc} / {f_acc} (Real: {v_real}, Fake: {v_fake})",
+        f"  - AP  (Video/Frame)  : {v_ap} / {f_ap}",
+        f"  - Low FPR Detection  : TPR@1% = {v_tpr1} | TPR@5% = {v_tpr5}",
+    ]
+    gw_mean = result.get('gating_w_mean')
+    if gw_mean is not None:
+        gw_real = result.get('gating_w_real')
+        gw_fake = result.get('gating_w_fake')
+        real_str = f"{gw_real:.2f}" if gw_real is not None and np.isfinite(gw_real) else "N/A"
+        fake_str = f"{gw_fake:.2f}" if gw_fake is not None and np.isfinite(gw_fake) else "N/A"
+        secondary.append(f"  - Gating Behavior    : Mean w = {gw_mean:.2f} (Real: {real_str}, Fake: {fake_str})")
+    secondary.extend([
+        f"  - Video Confusion    : TN={tn}, FP={fp}, FN={fn}, TP={tp}",
+        "-" * 70,
+    ])
+
     lines = [
         f"\n>>> [{name}] TEST SUMMARY ({v_n} videos, {f_n} frames) <<<",
         "-" * 70,
@@ -150,11 +169,5 @@ def format_compact_test_report(name, result):
         f"* FRAME AUC : {f_auc}{f_auc_str}",
         f"* VIDEO EER : {v_eer}  (Frame EER: {f_eer})",
         "-" * 70,
-        "[Secondary Details - Fusion]:",
-        f"  - Acc (Video/Frame)  : {v_acc} / {f_acc} (Real: {v_real}, Fake: {v_fake})",
-        f"  - AP  (Video/Frame)  : {v_ap} / {f_ap}",
-        f"  - Low FPR Detection  : TPR@1% = {v_tpr1} | TPR@5% = {v_tpr5}",
-        f"  - Video Confusion    : TN={tn}, FP={fp}, FN={fn}, TP={tp}",
-        "-" * 70,
-    ]
+    ] + secondary
     return "\n".join(lines)
