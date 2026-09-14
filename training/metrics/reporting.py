@@ -38,13 +38,15 @@ def compact_training_metrics(values):
 METRIC_NAMES = ('auc', 'eer', 'ap', 'acc', 'acc_real', 'acc_fake', 'balanced_acc',
                 'f1', 'brier', 'ece', 'tpr_at_fpr_01', 'tpr_at_fpr_05',
                 'tn', 'fp', 'fn', 'tp', 'n')
-FEATURE_MODELS = ('bias_sspanet_feat_mil', 'bias_sspanet_ff_mil', 'camil')
+FEATURE_MODELS = ('bias_sspanet_feat_mil', 'bias_sspanet_ff_mil', 'camil', 'bias_saf_mil', 'saf_mil')
 
 
 def _get_metric_rows(result, model, seed, dataset, checkpoint, ensemble_weight):
     if result.get('learned_gate'):
         branches = [
             ('', 'learned_fusion'),
+            ('feature_fusion_', 'feature_fusion'),
+            ('ens_f_mil_', 'ens_f_mil'),
             ('ens_cls_mil_', 'ensemble'),
             ('mil_', 'mil'),
             ('cls_only_', 'cls'),

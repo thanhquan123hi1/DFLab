@@ -28,7 +28,7 @@ from detectors.bias_sspanet_feat_mil_detector import compute_dynamic_gating
 @torch.no_grad()
 def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=False, ensemble_weight=0.5):
     values = {k: [] for k in ('prob', 'label', 'label_spe', 'cls_only_prob', 'mil_prob', 'feat',
-                              'gating_w', 'gating_w_cls', 'gating_w_f', 'bdg_cls_mil_prob', 'bdg_f_mil_prob')}
+                              'gating_w', 'gating_w_cls', 'gating_w_f', 'bdg_cls_mil_prob', 'bdg_f_mil_prob', 'feature_fusion_prob')}
     patches, names, patch_names, attns = [], [], [], []
     count = 0
     global_names = loader.dataset.data_dict['image']
@@ -76,7 +76,7 @@ def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=
                     out['gating_w_cls'] = out['gating_w']
 
         for key in ('prob', 'cls_only_prob', 'mil_prob', 'feat', 'gating_w',
-                    'gating_w_cls', 'gating_w_f', 'bdg_cls_mil_prob', 'bdg_f_mil_prob'):
+                    'gating_w_cls', 'gating_w_f', 'bdg_cls_mil_prob', 'bdg_f_mil_prob', 'feature_fusion_prob'):
             if key in out and out[key] is not None and (key != 'feat' or save_feat):
                 val = out[key]
                 if torch.is_tensor(val):
@@ -103,10 +103,11 @@ def evaluate(model, loader, device, max_samples=None, patch_limit=32, save_feat=
     elif 'prob' in arrays and 'mil_prob' in arrays and 'ensemble_prob' not in arrays:
         arrays['ensemble_prob'] = (1.0 - ens_w) * arrays['prob'] + ens_w * arrays['mil_prob']
 
-    if 'prob' in arrays and 'mil_prob' in arrays and is_feat_model:
-        arrays['ens_f_mil_prob'] = (1.0 - ens_w) * arrays['prob'] + ens_w * arrays['mil_prob']
+    feat_base = arrays.get('feature_fusion_prob', arrays.get('prob'))
+    if feat_base is not None and 'mil_prob' in arrays and is_feat_model:
+        arrays['ens_f_mil_prob'] = (1.0 - ens_w) * feat_base + ens_w * arrays['mil_prob']
 
-    if is_feat_model and 'prob' in arrays:
+    if is_feat_model and 'feature_fusion_prob' not in arrays and 'prob' in arrays:
         arrays['feature_fusion_prob'] = arrays['prob']
 
     result = get_test_metrics(arrays['prob'], arrays['label'], names)

@@ -144,7 +144,8 @@ def format_compact_test_report(name, result):
     # Build Candidate Ablation Branches
     if result.get('learned_gate'):
         BRANCH_DEFS = [
-            ('Fusion', 'feature_fusion', ''),
+            ('Learned Fusion', 'learned_fusion', ''),
+            ('Feature Fusion', 'feature_fusion'),
             ('Ensemble', 'ens_cls_mil', 'ensemble'),
             ('MIL', 'mil'),
             ('CLS', 'cls_only', 'cls'),
