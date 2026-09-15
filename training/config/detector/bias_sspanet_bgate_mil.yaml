@@ -1,0 +1,11 @@
+# Resolved relative to this file. All baseline values remain unchanged.
+base_config: bias_sspanet_mil.yaml
+model_name: bias_sspanet_bgate_mil
+gate_hidden_dim: 16
+gate_radius: 0.25
+gate_regularization: 0.1
+gate_warmup_epochs: 1
+gate_lr: 0.0001
+gate_grad_clip_norm: 5.0
+metric_scoring: video_auc
+selection_dataset: FaceForensics++
