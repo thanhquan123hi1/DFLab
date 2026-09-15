@@ -10,10 +10,6 @@ use_sspanet: true
 lambda_mil: 0.3
 mil_topk: 16
 fusion_alpha_init: 0.1
-# Bilateral Dynamic Gating (BDG) parameters
-gating_w_min: 0.05
-gating_w_max: 0.85
-gating_tau: 0.15
 validation_dataset: [FaceForensics++]
 validation_split: val
 selection_dataset: FaceForensics++

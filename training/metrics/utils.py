@@ -88,7 +88,7 @@ def write_json(path, data, append=False):
 
 
 def format_compact_test_report(name, result):
-    """Format evaluation metrics into a clean, compact, human-readable summary report with a ranked leaderboard."""
+    """Format evaluation metrics into a clean, compact, human-readable summary report."""
     def fmt_pct(val, decimals=2):
         if val is None or not np.isfinite(val):
             return "N/A"
@@ -100,24 +100,13 @@ def format_compact_test_report(name, result):
     f_eer = fmt_pct(result.get('eer'))
 
     mil_v_auc = result.get('mil_video_auc')
-    cls_v_auc = result.get('cls_only_video_auc', result.get('cls_video_auc'))
-    ens_v_auc = result.get('ensemble_video_auc', result.get('ens_cls_mil_video_auc'))
-    bdg_f_v_auc = result.get('bdg_f_mil_video_auc')
-    bdg_cls_v_auc = result.get('bdg_cls_mil_video_auc')
-
+    cls_v_auc = result.get('cls_only_video_auc')
+    ens_v_auc = result.get('ensemble_video_auc')
     mil_f_auc = result.get('mil_auc')
-    cls_f_auc = result.get('cls_only_auc', result.get('cls_auc'))
-    ens_f_auc = result.get('ensemble_auc', result.get('ens_cls_mil_auc'))
-    bdg_f_f_auc = result.get('bdg_f_mil_auc')
-    bdg_cls_f_auc = result.get('bdg_cls_mil_auc')
+    cls_f_auc = result.get('cls_only_auc')
+    ens_f_auc = result.get('ensemble_auc')
 
     v_auc_extra = []
-    if result.get('learned_gate'):
-        v_auc_extra.append(f"Fusion: {v_auc}")
-    if bdg_f_v_auc is not None and np.isfinite(bdg_f_v_auc):
-        v_auc_extra.append(f"BDG(F): {fmt_pct(bdg_f_v_auc)}")
-    if bdg_cls_v_auc is not None and np.isfinite(bdg_cls_v_auc) and (result.get('video_auc') != bdg_cls_v_auc):
-        v_auc_extra.append(f"BDG(CLS): {fmt_pct(bdg_cls_v_auc)}")
     if ens_v_auc is not None and np.isfinite(ens_v_auc):
         v_auc_extra.append(f"Ensemble: {fmt_pct(ens_v_auc)}")
     if mil_v_auc is not None and np.isfinite(mil_v_auc):
@@ -127,12 +116,6 @@ def format_compact_test_report(name, result):
     v_auc_str = f"  ({ ' | '.join(v_auc_extra) })" if v_auc_extra else ""
 
     f_auc_extra = []
-    if result.get('learned_gate'):
-        f_auc_extra.append(f"Fusion: {f_auc}")
-    if bdg_f_f_auc is not None and np.isfinite(bdg_f_f_auc):
-        f_auc_extra.append(f"BDG(F): {fmt_pct(bdg_f_f_auc)}")
-    if bdg_cls_f_auc is not None and np.isfinite(bdg_cls_f_auc) and (result.get('auc') != bdg_cls_f_auc):
-        f_auc_extra.append(f"BDG(CLS): {fmt_pct(bdg_cls_f_auc)}")
     if ens_f_auc is not None and np.isfinite(ens_f_auc):
         f_auc_extra.append(f"Ensemble: {fmt_pct(ens_f_auc)}")
     if mil_f_auc is not None and np.isfinite(mil_f_auc):
@@ -140,138 +123,6 @@ def format_compact_test_report(name, result):
     if cls_f_auc is not None and np.isfinite(cls_f_auc):
         f_auc_extra.append(f"CLS: {fmt_pct(cls_f_auc)}")
     f_auc_str = f"  ({ ' | '.join(f_auc_extra) })" if f_auc_extra else ""
-
-    # Build Candidate Ablation Branches
-    if result.get('learned_gate'):
-        BRANCH_DEFS = [
-            ('Learned Fusion', 'learned_fusion', ''),
-            ('Feature Fusion', 'feature_fusion'),
-            ('Ensemble', 'ens_cls_mil', 'ensemble'),
-            ('MIL', 'mil'),
-            ('CLS', 'cls_only', 'cls'),
-        ]
-    else:
-        BRANCH_DEFS = [
-            ('Adaptive BDG (CLS + MIL)', 'bdg_cls_mil'),
-            ('Adaptive BDG (F + MIL)', 'bdg_f_mil'),
-            ('Ensemble 50/50 (CLS + MIL)', 'ens_cls_mil', 'ensemble'),
-            ('Ensemble 50/50 (F + MIL)', 'ens_f_mil'),
-            ('Feature Fusion (F)', 'feature_fusion'),
-            ('MIL (Patch Head only)', 'mil'),
-            ('CLS only', 'cls_only', 'cls'),
-        ]
-
-    leaderboard_entries = []
-    for item in BRANCH_DEFS:
-        name_str = item[0]
-        prefix = item[1]
-        legacy_prefix = item[2] if len(item) > 2 else None
-
-        v_auc_val = result.get(f'{prefix}_video_auc')
-        if v_auc_val is None and legacy_prefix is not None:
-            v_auc_val = result.get(f'{legacy_prefix}_video_auc' if legacy_prefix else 'video_auc')
-        if v_auc_val is None and prefix == 'feature_fusion' and result.get('is_feat_model'):
-            v_auc_val = result.get('video_auc')
-
-        f_auc_val = result.get(f'{prefix}_auc')
-        if f_auc_val is None and legacy_prefix is not None:
-            f_auc_val = result.get(f'{legacy_prefix}_auc' if legacy_prefix else 'auc')
-        if f_auc_val is None and prefix == 'feature_fusion' and result.get('is_feat_model'):
-            f_auc_val = result.get('auc')
-
-        if v_auc_val is None and f_auc_val is None:
-            continue
-
-        v_eer_val = result.get(f'{prefix}_video_eer')
-        if v_eer_val is None and legacy_prefix is not None:
-            v_eer_val = result.get(f'{legacy_prefix}_video_eer' if legacy_prefix else 'video_eer')
-        if v_eer_val is None and prefix == 'feature_fusion' and result.get('is_feat_model'):
-            v_eer_val = result.get('video_eer')
-
-        f_eer_val = result.get(f'{prefix}_eer')
-        if f_eer_val is None and legacy_prefix is not None:
-            f_eer_val = result.get(f'{legacy_prefix}_eer' if legacy_prefix else 'eer')
-        if f_eer_val is None and prefix == 'feature_fusion' and result.get('is_feat_model'):
-            f_eer_val = result.get('eer')
-
-        v_acc_val = result.get(f'{prefix}_video_acc')
-        if v_acc_val is None and legacy_prefix is not None:
-            v_acc_val = result.get(f'{legacy_prefix}_video_acc' if legacy_prefix else 'video_acc')
-        if v_acc_val is None and prefix == 'feature_fusion' and result.get('is_feat_model'):
-            v_acc_val = result.get('video_acc')
-
-        v_ap_val = result.get(f'{prefix}_video_ap')
-        if v_ap_val is None and legacy_prefix is not None:
-            v_ap_val = result.get(f'{legacy_prefix}_video_ap' if legacy_prefix else 'video_ap')
-        if v_ap_val is None and prefix == 'feature_fusion' and result.get('is_feat_model'):
-            v_ap_val = result.get('video_ap')
-
-        leaderboard_entries.append({
-            'strategy': name_str,
-            'video_auc': v_auc_val,
-            'frame_auc': f_auc_val,
-            'video_eer': v_eer_val,
-            'frame_eer': f_eer_val,
-            'video_acc': v_acc_val,
-            'video_ap': v_ap_val,
-        })
-
-    def sort_score(entry):
-        v = entry['video_auc']
-        f = entry['frame_auc']
-        v_num = float(v) if v is not None and np.isfinite(v) else -1.0
-        f_num = float(f) if f is not None and np.isfinite(f) else -1.0
-        return (v_num, f_num)
-
-    leaderboard_entries.sort(key=sort_score, reverse=True)
-
-    leaderboard_lines = []
-    if len(leaderboard_entries) >= 2:
-        headers = ['Rank', 'Strategy / Branch', 'Video AUC', 'Frame AUC', 'Video EER', 'Frame EER', 'Video Acc', 'Video AP']
-        table_rows = []
-        for rank, entry in enumerate(leaderboard_entries, 1):
-            table_rows.append([
-                str(rank),
-                entry['strategy'],
-                fmt_pct(entry['video_auc']),
-                fmt_pct(entry['frame_auc']),
-                fmt_pct(entry['video_eer']),
-                fmt_pct(entry['frame_eer']),
-                fmt_pct(entry['video_acc']),
-                fmt_pct(entry['video_ap']),
-            ])
-
-        col_widths = [len(h) for h in headers]
-        for row in table_rows:
-            for i, val in enumerate(row):
-                col_widths[i] = max(col_widths[i], len(val))
-
-        col_widths[0] = max(col_widths[0], 4)   # Rank
-        col_widths[1] = max(col_widths[1], 27)  # Strategy
-        for i in range(2, len(headers)):
-            col_widths[i] = max(col_widths[i], 9)
-
-        sep_line = "+-" + "-+-".join("-" * w for w in col_widths) + "-+"
-        double_sep = "+=" + "=+=".join("=" * w for w in col_widths) + "=+"
-
-        def render_tbl_row(parts):
-            cells = [
-                f" {parts[0]:^{col_widths[0]}} ",
-                f" {parts[1]:<{col_widths[1]}} ",
-            ]
-            for i in range(2, len(parts)):
-                cells.append(f" {parts[i]:>{col_widths[i]}} ")
-            return "|" + "|".join(cells) + "|"
-
-        leaderboard_lines = [
-            "[Ablation Leaderboard - Ranked by Video AUC]:",
-            sep_line,
-            render_tbl_row(headers),
-            double_sep,
-        ]
-        for row in table_rows:
-            leaderboard_lines.append(render_tbl_row(row))
-        leaderboard_lines.append(sep_line)
 
     v_acc = fmt_pct(result.get('video_acc'))
     f_acc = fmt_pct(result.get('acc'))
@@ -292,36 +143,6 @@ def format_compact_test_report(name, result):
     v_n = result.get('video_n', 'N/A')
     f_n = result.get('n', 'N/A')
 
-    details_hdr = "[Secondary Details - Adaptive BDG]:" if (result.get('gating_w_mean') is not None and not leaderboard_lines) else "[Secondary Details]:"
-    if result.get('learned_gate'):
-        details_hdr = "[Secondary Details - Fusion (learned gate)]:"
-
-    secondary = [
-        details_hdr,
-        f"  - Acc (Video/Frame)  : {v_acc} / {f_acc} (Real: {v_real}, Fake: {v_fake})",
-        f"  - AP  (Video/Frame)  : {v_ap} / {f_ap}",
-        f"  - Low FPR Detection  : TPR@1% = {v_tpr1} | TPR@5% = {v_tpr5}",
-    ]
-    gw_mean = result.get('gating_w_mean')
-    gw_f_mean = result.get('gating_w_f_mean')
-    if gw_mean is not None:
-        gw_real = result.get('gating_w_real')
-        gw_fake = result.get('gating_w_fake')
-        real_str = f"{gw_real:.2f}" if gw_real is not None and np.isfinite(gw_real) else "N/A"
-        fake_str = f"{gw_fake:.2f}" if gw_fake is not None and np.isfinite(gw_fake) else "N/A"
-        cls_lbl = "Gating Behavior (CLS)" if gw_f_mean is not None else "Gating Behavior    "
-        secondary.append(f"  - {cls_lbl}: Mean w = {gw_mean:.2f} (Real: {real_str}, Fake: {fake_str})")
-    if gw_f_mean is not None:
-        gw_f_real = result.get('gating_w_f_real')
-        gw_f_fake = result.get('gating_w_f_fake')
-        f_real_str = f"{gw_f_real:.2f}" if gw_f_real is not None and np.isfinite(gw_f_real) else "N/A"
-        f_fake_str = f"{gw_f_fake:.2f}" if gw_f_fake is not None and np.isfinite(gw_f_fake) else "N/A"
-        secondary.append(f"  - Gating Behavior (F)  : Mean w = {gw_f_mean:.2f} (Real: {f_real_str}, Fake: {f_fake_str})")
-    secondary.extend([
-        f"  - Video Confusion    : TN={tn}, FP={fp}, FN={fn}, TP={tp}",
-        "-" * 70,
-    ])
-
     lines = [
         f"\n>>> [{name}] TEST SUMMARY ({v_n} videos, {f_n} frames) <<<",
         "-" * 70,
@@ -329,9 +150,11 @@ def format_compact_test_report(name, result):
         f"* FRAME AUC : {f_auc}{f_auc_str}",
         f"* VIDEO EER : {v_eer}  (Frame EER: {f_eer})",
         "-" * 70,
+        "[Secondary Details - Fusion]:",
+        f"  - Acc (Video/Frame)  : {v_acc} / {f_acc} (Real: {v_real}, Fake: {v_fake})",
+        f"  - AP  (Video/Frame)  : {v_ap} / {f_ap}",
+        f"  - Low FPR Detection  : TPR@1% = {v_tpr1} | TPR@5% = {v_tpr5}",
+        f"  - Video Confusion    : TN={tn}, FP={fp}, FN={fn}, TP={tp}",
+        "-" * 70,
     ]
-    if leaderboard_lines:
-        lines.extend(leaderboard_lines)
-        lines.append("-" * 70)
-    lines.extend(secondary)
     return "\n".join(lines)

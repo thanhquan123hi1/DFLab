@@ -37,12 +37,10 @@ class LNSSPANetMILDetector(AbstractDetector):
         if self.mil_weight < 0 or (not self.use_patch and self.mil_weight != 0):
             raise ValueError('lambda_mil must be nonnegative and zero when use_patch=false')
         self.head = nn.Linear(dim, 2)
-        self.gating_w_min = float(self.config.get('gating_w_min', 0.05))
-        self.gating_w_max = float(self.config.get('gating_w_max', 0.85))
-        self.gating_tau = float(self.config.get('gating_tau', 0.15))
         if self.use_patch:
             self.sspanet = ATTN_Block(dim) if self.use_sspanet else nn.Identity()
             self.patch_head = nn.Conv2d(dim, 1, 1)
+            self.fusion_alpha = nn.Parameter(torch.tensor(float(self.config.get('fusion_alpha_init', 0.1))))
             if self.mil_weight == 0:
                 self.patch_head.requires_grad_(False)
         self.build_loss(self.config)
@@ -88,8 +86,11 @@ class LNSSPANetMILDetector(AbstractDetector):
         if tokens.shape[1] != h * w:
             raise ValueError('Patch token count does not match image grid')
         patch_map = tokens.transpose(1, 2).reshape(image.shape[0], -1, h, w)
+        # Published block unchanged: no ReLU, bottleneck, or replacement normalization.
         refined = self.sspanet(patch_map)
-        return cls, cls, refined, patch_map
+        local = refined.mean(dim=(2, 3))
+        fused = F.normalize(cls, dim=1, eps=1e-6) + self.fusion_alpha * F.normalize(local, dim=1, eps=1e-6)
+        return fused, cls, refined, patch_map
 
     def features(self, data_dict):
         return self._extract(data_dict)[0]
@@ -97,60 +98,27 @@ class LNSSPANetMILDetector(AbstractDetector):
     def classifier(self, features):
         return self.head(features)
 
-    def _compute_dynamic_gating(self, cls_prob, patch_logits):
-        """
-        Bilateral Dynamic Gating (BDG):
-        Dynamically calculates sample-level MIL decision weight w(x) in [w_min, w_max].
-        - CLS confidence reflects distance from decision boundary: 2 * |cls_prob - 0.5|
-        - MIL confidence reflects patch peak salience and concentration: salience * (1 - entropy)
-        """
-        cls_conf = 2.0 * torch.abs(cls_prob.detach() - 0.5)
-        probs = patch_logits.detach().sigmoid().flatten(1)
-        salience = probs.max(dim=1).values - probs.mean(dim=1)
-        mass = probs / probs.sum(dim=1, keepdim=True).clamp_min(1e-6)
-        entropy = -(mass * mass.clamp_min(1e-8).log()).sum(dim=1) / math.log(max(2, probs.shape[1]))
-        mil_conf = salience * (1.0 - entropy).clamp(min=0.0, max=1.0)
-
-        ratio = (mil_conf - 0.5 * cls_conf) / max(1e-6, self.gating_tau)
-        w = self.gating_w_min + (self.gating_w_max - self.gating_w_min) * torch.sigmoid(ratio)
-        return w, cls_conf, mil_conf
-
-    def _fusion_gate(self, logits, cls_prob, patch_logits, mil_logits):
-        return self._compute_dynamic_gating(cls_prob, patch_logits)
-
     def forward(self, data_dict, inference=False):
-        _, cls, refined, patch_map = self._extract(data_dict)
-        normalized = F.normalize(cls, dim=1, eps=1e-6)
+        fused, cls, refined, patch_map = self._extract(data_dict)
+        normalized = F.normalize(fused, dim=1, eps=1e-6)
         logits = self.classifier(normalized)
-        cls_prob = logits.softmax(1)[:, 1]
-        result = {'cls': logits, 'prob': cls_prob, 'feat': cls, 'feat_norm': normalized,
-                  'cls_only_prob': cls_prob, 'gating_w': None}
+        result = {'cls': logits, 'prob': logits.softmax(1)[:, 1], 'feat': fused, 'feat_norm': normalized,
+                  'cls_only_prob': self.head(F.normalize(cls, dim=1, eps=1e-6)).softmax(1)[:, 1]}
         if refined is not None:
             patch_logits = self.patch_head(refined).squeeze(1)
             mil_logits = topk_mil_logits(patch_logits, self.mil_topk)
-            mil_prob = mil_logits.sigmoid()
-            w, cls_conf, mil_conf = self._fusion_gate(logits, cls_prob, patch_logits, mil_logits)
-            adaptive_prob = (1.0 - w) * cls_prob + w * mil_prob
-            result.update(
-                patch_logits=patch_logits,
-                mil_logits=mil_logits,
-                mil_prob=mil_prob,
-                gating_w=w,
-                prob=adaptive_prob,
-            )
+            result.update(patch_logits=patch_logits, mil_logits=mil_logits, mil_prob=mil_logits.sigmoid())
             with torch.no_grad():
                 probs = patch_logits.detach().sigmoid().flatten(1)
                 mass = probs / probs.sum(1, keepdim=True).clamp_min(1e-6)
                 result['diagnostics'] = {
+                    'fusion_alpha': self.fusion_alpha.detach(),
                     'patch_probability_mean': probs.mean(),
                     'patch_probability_std': probs.std(dim=1, unbiased=False).mean(),
                     'patch_entropy': (-(mass * mass.clamp_min(1e-8).log()).sum(1) / math.log(max(2, probs.shape[1]))).mean(),
                     'sspa_relative_change': ((refined.detach() - patch_map.detach()).flatten(1).norm(dim=1) /
                         patch_map.detach().flatten(1).norm(dim=1).clamp_min(1e-6)).mean(),
-                    'branch_disagreement': ((result['cls_only_prob'].detach() >= .5) != (result['mil_prob'].detach() >= .5)).float().mean(),
-                    'gating_weight_mean': w.mean(),
-                    'cls_confidence_mean': cls_conf.mean(),
-                    'mil_confidence_mean': mil_conf.mean(),
+                    'branch_disagreement': ((result['prob'].detach() >= .5) != (result['mil_prob'].detach() >= .5)).float().mean(),
                 }
         return result
 
@@ -172,8 +140,6 @@ class LNSSPANetMILDetector(AbstractDetector):
                     result[f'{name}_prob'] = pred_dict['prob'][mask].mean()
                     if 'mil_prob' in pred_dict:
                         result[f'{name}_mil_prob'] = pred_dict['mil_prob'][mask].mean()
-                    if pred_dict.get('gating_w') is not None:
-                        result[f'{name}_gating_w'] = pred_dict['gating_w'][mask].mean()
             result.update(pred_dict.get('diagnostics', {}))
         return result
 

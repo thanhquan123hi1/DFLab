@@ -119,7 +119,7 @@ def test_gradients_and_freezing(detector, labels):
     for group in [detector.sspanet, detector.patch_head, detector.head]:
         assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in group.parameters())
     assert detector.backbone.layer_norm.weight.grad.abs().sum() > 0
-    assert not hasattr(detector, 'fusion_alpha')
+    assert detector.fusion_alpha.grad is not None
     detector.eval()
     with torch.no_grad():
         torch.testing.assert_close(detector(data)['prob'], detector(data, inference=True)['prob'])
@@ -162,7 +162,7 @@ def test_bias_sspanet_mil_gradients_and_freezing(bias_sspanet_mil_detector, labe
     assert bias_sspanet_mil_detector.backbone.mix.bias.requires_grad is True
     assert bias_sspanet_mil_detector.backbone.mix.bias.grad.abs().sum() > 0
 
-    # Detector auxiliary modules: sspanet, patch_head, head are trainable and receive gradient
+    # Detector auxiliary modules: sspanet, patch_head, head, fusion_alpha are trainable and receive gradient
     for group_name, group in [('sspanet', bias_sspanet_mil_detector.sspanet),
                               ('patch_head', bias_sspanet_mil_detector.patch_head),
                               ('head', bias_sspanet_mil_detector.head)]:
@@ -170,7 +170,8 @@ def test_bias_sspanet_mil_gradients_and_freezing(bias_sspanet_mil_detector, labe
             f"Expected gradient in {group_name}"
     assert bias_sspanet_mil_detector.head.weight.grad is not None and bias_sspanet_mil_detector.head.weight.grad.abs().sum() > 0
     assert bias_sspanet_mil_detector.head.bias.grad is not None and bias_sspanet_mil_detector.head.bias.grad.abs().sum() > 0
-    assert not hasattr(bias_sspanet_mil_detector, 'fusion_alpha')
+    assert bias_sspanet_mil_detector.fusion_alpha.grad is not None
+    assert bias_sspanet_mil_detector.fusion_alpha.grad.abs().sum() > 0
 
     bias_sspanet_mil_detector.eval()
     with torch.no_grad():
@@ -211,7 +212,7 @@ def test_bias_sspanet_mil_trainable_counts(bias_sspanet_mil_detector):
     assert 'head' in counts
     assert 'sspanet' in counts
     assert 'patch_head' in counts
-    assert 'fusion_alpha' not in counts
+    assert 'fusion_alpha' in counts
     assert sum(p.numel() for p in bias_sspanet_mil_detector.parameters() if p.requires_grad) == sum(counts.values())
 
 
@@ -258,13 +259,13 @@ def test_trainer_checkpoint_diagnostics_and_test_cap(detector, tmp_path):
     result, arrays = evaluate(detector.eval(), loader, torch.device('cpu'), max_samples=3, patch_limit=2)
     assert result['n'] == 3 and len(arrays['image_names']) == 3
     assert arrays['patch_prob'].shape == (2, 4, 4)
-    assert (tmp_path / 'ln_sspanet_mil_smoke/history.jsonl').exists()
+    assert (tmp_path / 'ln_sspanet_mil_smoke/train.jsonl').exists()
     import json
-    ln_train_lines = [json.loads(line) for line in (tmp_path / 'ln_sspanet_mil_smoke/history.jsonl').read_text().strip().split('\n')]
+    ln_train_lines = [json.loads(line) for line in (tmp_path / 'ln_sspanet_mil_smoke/train.jsonl').read_text().strip().split('\n')]
     assert len(ln_train_lines) > 0
     assert 'grad_backbone_ln' in ln_train_lines[0]
     assert 'grad_backbone_bias' not in ln_train_lines[0]
-    ln_trainable_data = json.loads((tmp_path / 'ln_sspanet_mil_smoke/run.json').read_text())['trainable_parameters']
+    ln_trainable_data = json.loads((tmp_path / 'ln_sspanet_mil_smoke/trainable_parameters.json').read_text())
     assert 'backbone_ln' in ln_trainable_data
     assert 'backbone_bias' not in ln_trainable_data
     for writer in trainer.writers.values():
@@ -421,19 +422,19 @@ def test_bias_sspanet_mil_trainer_smoke(bias_sspanet_mil_detector, tmp_path):
     result, arrays = evaluate(bias_sspanet_mil_detector.eval(), loader, torch.device('cpu'), max_samples=3, patch_limit=2)
     assert result['n'] == 3 and len(arrays['image_names']) == 3
     assert arrays['patch_prob'].shape == (2, 4, 4)
-    assert (tmp_path / 'bias_sspanet_mil_smoke_bias/history.jsonl').exists()
+    assert (tmp_path / 'bias_sspanet_mil_smoke_bias/train.jsonl').exists()
     import json
-    train_lines = [json.loads(line) for line in (tmp_path / 'bias_sspanet_mil_smoke_bias/history.jsonl').read_text().strip().split('\n')]
+    train_lines = [json.loads(line) for line in (tmp_path / 'bias_sspanet_mil_smoke_bias/train.jsonl').read_text().strip().split('\n')]
     assert len(train_lines) > 0
     assert 'grad_backbone_bias' in train_lines[0]
     assert 'grad_backbone_ln' not in train_lines[0]
     assert 'grad_head' in train_lines[0]
     assert 'grad_sspanet' in train_lines[0]
     assert 'grad_patch_head' in train_lines[0]
-    assert 'grad_fusion_alpha' not in train_lines[0]
-    trainable_params_path = tmp_path / 'bias_sspanet_mil_smoke_bias/run.json'
+    assert 'grad_fusion_alpha' in train_lines[0]
+    trainable_params_path = tmp_path / 'bias_sspanet_mil_smoke_bias/trainable_parameters.json'
     assert trainable_params_path.exists()
-    trainable_data = json.loads(trainable_params_path.read_text())['trainable_parameters']
+    trainable_data = json.loads(trainable_params_path.read_text())
     assert 'backbone_bias' in trainable_data
     assert 'backbone_ln' not in trainable_data
     for writer in trainer.writers.values():
@@ -488,7 +489,7 @@ def test_ablation_configs():
 
 
 def test_requirements_files_consistency():
-    for name in ('requirements.txt',):
+    for name in ('requirements-ln-sspanet-mil.txt', 'requirements-bias-sspanet-mil.txt', 'requirements.txt'):
         path = ROOT / name
         assert path.is_file()
         content = path.read_text(encoding='utf-8')
@@ -526,69 +527,5 @@ def test_eval_ensemble_sweep(tmp_path):
     assert 'Ensemble: 96.50%' in report
     assert 'MIL: 95.80%' in report
     assert 'CLS: 94.90%' in report
-
-
-def test_bilateral_dynamic_gating(bias_sspanet_mil_detector):
-    """Verify Bilateral Dynamic Gating bounds, behavior on noise vs peak artifacts, and report."""
-    from metrics.utils import format_compact_test_report
-    model = bias_sspanet_mil_detector
-    model.eval()
-
-    data = dict(image=torch.randn(4, 3, 8, 8), label=torch.tensor([0, 0, 1, 1]))
-    with torch.no_grad():
-        out = model(data)
-
-    assert 'gating_w' in out
-    w = out['gating_w']
-    assert w.shape == (4,)
-    assert (w >= model.gating_w_min).all() and (w <= model.gating_w_max).all()
-
-    # Check that adaptive prob satisfies (1 - w)*cls_prob + w*mil_prob
-    expected_prob = (1.0 - w) * out['cls_only_prob'] + w * out['mil_prob']
-    torch.testing.assert_close(out['prob'], expected_prob)
-
-    # Synthetic Scenario 1: Diffuse / Flat noise patches (DFDC style) -> w should be close to w_min
-    flat_patch_logits = torch.zeros(2, 4, 4)  # identical patches -> salience = 0
-    confident_cls = torch.tensor([0.05, 0.95])  # very confident CLS
-    w_noisy, cls_conf, mil_conf = model._compute_dynamic_gating(confident_cls, flat_patch_logits)
-    assert (mil_conf < 0.05).all()
-    assert (w_noisy < 0.15).all(), f"Expected w to drop near w_min, got {w_noisy}"
-
-    # Synthetic Scenario 2: Sharp localized anomaly (Celeb-DF style) with confused CLS -> w should leap near w_max
-    sharp_patch_logits = torch.full((1, 4, 4), -8.0)
-    sharp_patch_logits[0, 1, 1] = 8.0  # single smoking gun patch
-    confused_cls = torch.tensor([0.50])  # CLS is 50/50 confused
-    w_sharp, cls_conf2, mil_conf2 = model._compute_dynamic_gating(confused_cls, sharp_patch_logits)
-    assert mil_conf2.item() > 0.4
-    assert w_sharp.item() > 0.70, f"Expected w to leap near w_max, got {w_sharp.item()}"
-
-    # Verify report formatting with gating statistics
-    report_dict = dict(
-        video_auc=0.961, mil_video_auc=0.956, cls_only_video_auc=0.953,
-        auc=0.898, mil_auc=0.892, cls_only_auc=0.886,
-        video_eer=0.10, eer=0.18, n=4, video_n=2,
-        gating_w_mean=0.25, gating_w_real=0.08, gating_w_fake=0.42
-    )
-    rep = format_compact_test_report('Celeb-DF-v2', report_dict)
-    assert 'Gating Behavior' in rep
-    assert 'Mean w = 0.25' in rep
-    assert 'Real: 0.08' in rep
-    assert 'Fake: 0.42' in rep
-
-
-def test_checkpoint_loading_state_dict(tmp_path):
-    """Ensure checkpoints saved by trainer can be prepared by test.py logic without UnboundLocalError."""
-    dummy_state = {'module.layer.weight': torch.randn(2, 2), 'layer.bias': torch.randn(2)}
-    ckpt_path = tmp_path / 'ckpt.pth'
-    torch.save({'state_dict': dummy_state, 'config': {'model_name': 'test'}}, ckpt_path)
-
-    checkpoint = safe_torch_load(ckpt_path)
-    state = checkpoint.get('state_dict', checkpoint)
-    state = {k[7:] if k.startswith('module.') else k: v for k, v in state.items()}
-
-    assert 'layer.weight' in state
-    assert 'layer.bias' in state
-    assert not any(k.startswith('module.') for k in state)
-
 
 

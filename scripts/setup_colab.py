@@ -26,9 +26,12 @@ def main():
     python = target / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     def run(*arguments):
         subprocess.run([str(python), '-I', *arguments], cwd=ROOT, env=env, check=True)
-    req_file = ROOT / 'requirements.txt'
-    run('-m', 'pip', 'install', '-r', str(req_file),
-        '--extra-index-url', 'https://download.pytorch.org/whl/cu113')
+    req_file = ROOT / 'requirements-ln-sspanet-mil.txt'
+    if not req_file.exists():
+        req_file = ROOT / 'requirements.txt'
+    if not req_file.exists():
+        req_file = ROOT / 'requirements-bias-sspanet-mil.txt'
+    run('-m', 'pip', 'install', '-r', str(req_file))
     run('-m', 'pip', 'check')
     run(str(ROOT / 'scripts/check_environment.py'))
     print(f'Environment ready. Train with: {python} -I training/train.py', flush=True)

@@ -112,111 +112,21 @@ def run_ensemble_sweep(predictions_path, weights=None, mode='fusion_mil', save=F
     return best_item, results
 
 
-def plot_ensemble_curves(all_results, plot_path, branch_name='CLS'):
-    """Plot Video AUC vs MIL weight curves for all evaluated datasets."""
-    import matplotlib.pyplot as plt
-
-    plt.figure(figsize=(10, 6), dpi=150)
-    plt.rcParams['font.family'] = 'sans-serif'
-    plt.rcParams['axes.grid'] = True
-    plt.rcParams['grid.alpha'] = 0.3
-
-    colors = ['#1f77b4', '#d62728', '#2ca02c', '#ff7f0e', '#9467bd', '#8c564b']
-
-    for idx, (ds_name, (best_item, results)) in enumerate(all_results.items()):
-        ws = [r['weight'] for r in results]
-        v_aucs = [r['video_auc'] * 100 for r in results]
-        color = colors[idx % len(colors)]
-        label = f"{ds_name} (Max: {best_item['video_auc']*100:.2f}% @ w={best_item['weight']:.2f})"
-        plt.plot(ws, v_aucs, marker='o', markersize=4, linewidth=2, color=color, label=label)
-        plt.scatter([best_item['weight']], [best_item['video_auc'] * 100],
-                    color=color, s=90, edgecolors='black', linewidth=1.2, zorder=5)
-
-    if len(all_results) > 1:
-        # Calculate joint average curve
-        first_res = next(iter(all_results.values()))[1]
-        ws = [r['weight'] for r in first_res]
-        avg_aucs = []
-        for i in range(len(ws)):
-            aucs = [res_list[1][i]['video_auc'] * 100 for res_list in all_results.values()]
-            avg_aucs.append(float(np.mean(aucs)))
-        best_avg_idx = int(np.argmax(avg_aucs))
-        best_avg_w = ws[best_avg_idx]
-        best_avg_auc = avg_aucs[best_avg_idx]
-        plt.plot(ws, avg_aucs, marker='s', markersize=5, linewidth=2.5, linestyle='--',
-                 color='#000000', label=f"Average (Peak: {best_avg_auc:.2f}% @ w={best_avg_w:.2f})")
-        plt.scatter([best_avg_w], [best_avg_auc], color='black', s=110, edgecolors='gold', linewidth=1.5, zorder=6)
-
-    plt.title(f"Decision Ensemble Sweep ({branch_name} + MIL): Video AUC vs Weight (w)", fontsize=14, fontweight='bold', pad=12)
-    plt.xlabel(f"MIL Weight (w)  [w = 0.0: Pure {branch_name}  |  w = 1.0: Pure MIL]", fontsize=11)
-    plt.ylabel("Video AUC (%)", fontsize=11)
-    plt.xticks(np.linspace(0.0, 1.0, 11))
-    plt.legend(loc='best', frameon=True, facecolor='white', framealpha=0.9, shadow=True)
-    plt.tight_layout()
-
-    out_file = Path(plot_path)
-    out_file.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(out_file)
-    plt.close()
-    print(f"\n[PLOT SUCCESS] Saved ensemble curve to: {out_file}")
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--predictions', nargs='+', required=True, help='Path to one or more *_predictions.npz files')
+    parser.add_argument('--predictions', required=True, help='Path to *_predictions.npz file')
     parser.add_argument('--weight', type=float, default=None, help='Specific MIL weight to evaluate (default: sweep [0, 1])')
-    parser.add_argument('--mode', choices=['fusion_mil', 'cls_mil'], default='cls_mil',
-                        help='Which global branch to ensemble with MIL: cls_mil (recommended) or fusion_mil')
+    parser.add_argument('--mode', choices=['fusion_mil', 'cls_mil'], default='fusion_mil',
+                        help='Which global branch to ensemble with MIL: fusion_mil or cls_mil')
     parser.add_argument('--save', action='store_true', help='Save best ensemble metrics to json')
-    parser.add_argument('--plot', action='store_true', help='Generate and save AUC vs weight curve plot')
-    parser.add_argument('--plot_out', default=None, help='Custom path to save the plot image')
     args = parser.parse_args()
 
-    all_results = {}
-    for pred_path in args.predictions:
-        p = Path(pred_path)
-        name = p.stem.replace('_predictions', '')
-        best_item, results = run_ensemble_sweep(
-            predictions_path=p,
-            weights=args.weight,
-            mode=args.mode,
-            save=args.save
-        )
-        all_results[name] = (best_item, results)
-
-    if len(all_results) > 1 and args.weight is None:
-        print("\n" + "=" * 82)
-        print(f" JOINT MULTI-DATASET SUMMARY ({args.mode.upper()})")
-        print("=" * 82)
-        datasets = list(all_results.keys())
-        header = f"{'Weight (w)':<12} | " + " | ".join(f"{d[:14]:<14}" for d in datasets) + " | Average AUC"
-        print(header)
-        print("-" * len(header))
-
-        first_res = next(iter(all_results.values()))[1]
-        ws = [r['weight'] for r in first_res]
-        best_joint_w = None
-        best_joint_avg = -1.0
-
-        for i, w in enumerate(ws):
-            aucs = [all_results[d][1][i]['video_auc'] * 100 for d in datasets]
-            avg_auc = float(np.mean(aucs))
-            auc_str = " | ".join(f"{a:6.2f}%{'':<7}" for a in aucs)
-            print(f"w = {w:.2f}{'':<6} | {auc_str} | {avg_auc:6.2f}%")
-            if avg_auc > best_joint_avg:
-                best_joint_avg = avg_auc
-                best_joint_w = w
-
-        print("-" * len(header))
-        print(f">>> JOINT OPTIMAL WEIGHT: w = {best_joint_w:.2f} (Average Video AUC: {best_joint_avg:.2f}%) <<<\n")
-
-    if args.plot or args.plot_out:
-        branch_name = 'CLS' if args.mode == 'cls_mil' else 'Fusion'
-        plot_path = args.plot_out
-        if plot_path is None:
-            first_path = Path(args.predictions[0])
-            plot_path = first_path.parent / f"ensemble_{args.mode}_curve.png"
-        plot_ensemble_curves(all_results, plot_path, branch_name=branch_name)
+    run_ensemble_sweep(
+        predictions_path=args.predictions,
+        weights=args.weight,
+        mode=args.mode,
+        save=args.save
+    )
 
 
 if __name__ == '__main__':

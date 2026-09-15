@@ -57,19 +57,15 @@ parser.add_argument('--task_target', type=str, default="", help='specify the tar
 
 # [NEW] Thêm tham số weights_path giống test.py
 parser.add_argument('--weights_path', type=str, default=None, help='Path to pretrained weights (overrides config)')
-parser.add_argument('--seed', '--manualSeed', dest='seed', type=int, default=None, help='manual random seed (overrides config)')
 
 def init_seed(config):
-    if config.get('manualSeed') is None:
-        if config.get('seed') is not None:
-            config['manualSeed'] = config['seed']
-        else:
-            config['manualSeed'] = random.randint(1, 10000)
+    if config['manualSeed'] is None:
+        config['manualSeed'] = random.randint(1, 10000)
     random.seed(config['manualSeed'])
     np.random.seed(config['manualSeed'])
     torch.manual_seed(config['manualSeed'])
-    if config.get('cuda', True) and torch.cuda.is_available():
-        torch.cuda.manual_seed(config['manualSeed'])
+    if config['cuda']:
+        torch.manual_seed(config['manualSeed'])
         torch.cuda.manual_seed_all(config['manualSeed'])
 
 
@@ -278,26 +274,18 @@ def main():
     # [NEW] Logic ưu tiên: CLI Argument > YAML Config
     if args.weights_path:
         config['pretrained'] = args.weights_path
-    if args.seed is not None:
-        config['manualSeed'] = args.seed
-    if args.task_target:
-        config['task_target'] = args.task_target
         
     config['save_ckpt'] = args.save_ckpt
     config['save_feat'] = args.save_feat
     if config['lmdb']:
         config['dataset_json_folder'] = 'preprocessing/dataset_json_v3'
     
-    # init seed before creating logger so manualSeed is determined and logged
-    init_seed(config)
-
-    # create logger with format: <model_name>[_<task_target>]_<seed>_<vietnam_time_HHhMM>
-    from trainer.trainer import Trainer, get_run_name, get_vietnam_time_str
-    timenow = get_vietnam_time_str()
-    run_name = get_run_name(config, time_now=timenow)
-    logger_path = os.path.join(
+    # create logger
+    timenow=datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+    task_str = f"_{config['task_target']}" if config.get('task_target', None) is not None else ""
+    logger_path =  os.path.join(
                 config['log_dir'],
-                run_name
+                config['model_name'] + task_str + '_' + timenow
             )
     os.makedirs(logger_path, exist_ok=True)
     logger = create_logger(os.path.join(logger_path, 'training.log'))
@@ -316,6 +304,9 @@ def main():
     for key, value in config.items():
         params_string += "{}: {}".format(key, value) + "\n"
     logger.info(params_string)
+
+    # init seed
+    init_seed(config)
 
     # set cudnn benchmark if needed
     if config['cudnn']:
@@ -396,7 +387,7 @@ def main():
     # prepare the trainer
     from trainer.trainer import Trainer
 
-    trainer = Trainer(config, model, optimizer, scheduler, logger, metric_scoring, time_now=timenow, log_dir=logger_path)
+    trainer = Trainer(config, model, optimizer, scheduler, logger, metric_scoring, time_now=timenow)
 
     # start training
     best_metric = None
