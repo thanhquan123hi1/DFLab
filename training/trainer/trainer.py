@@ -1,5 +1,4 @@
 """LN-SSPANet-MIL training with source-validation selection and auditable diagnostics."""
-import datetime
 import os
 import time
 from collections import defaultdict
@@ -10,6 +9,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from metrics.base_metrics_class import Recorder
 from metrics.utils import binary_metrics, get_test_metrics, write_json
+from run_naming import get_run_name
 
 
 class Trainer:
@@ -27,9 +27,7 @@ class Trainer:
         self.writers = {}
         self.best_metrics_all_time = {}
         self.best_score = float('inf') if metric_scoring == 'eer' else -float('inf')
-        stamp = time_now or datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-        task = f"_{config['task_target']}" if config.get('task_target') is not None else ''
-        self.log_dir = os.path.join(config['log_dir'], config['model_name'] + task + '_' + stamp)
+        self.log_dir = os.path.join(config['log_dir'], get_run_name(config, time_now=time_now))
         if self.rank == 0:
             os.makedirs(self.log_dir, exist_ok=True)
             write_json(os.path.join(self.log_dir, 'config.json'), config)

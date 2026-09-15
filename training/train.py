@@ -34,6 +34,7 @@ from optimizor.LinearLR import LinearDecayLR
 from detectors import DETECTOR
 from metrics.utils import parse_metric_for_print
 from logger import create_logger, RankFilter
+from run_naming import get_run_name
 
 
 def safe_torch_load(path, map_location='cpu'):
@@ -57,6 +58,8 @@ parser.add_argument('--task_target', type=str, default="", help='specify the tar
 
 # [NEW] Thêm tham số weights_path giống test.py
 parser.add_argument('--weights_path', type=str, default=None, help='Path to pretrained weights (overrides config)')
+parser.add_argument('--seed', '--manualSeed', dest='seed', type=int, default=None,
+                    help='Random seed (overrides manualSeed in YAML)')
 
 def init_seed(config):
     if config['manualSeed'] is None:
@@ -274,18 +277,21 @@ def main():
     # [NEW] Logic ưu tiên: CLI Argument > YAML Config
     if args.weights_path:
         config['pretrained'] = args.weights_path
+    if args.seed is not None:
+        config['manualSeed'] = args.seed
         
     config['save_ckpt'] = args.save_ckpt
     config['save_feat'] = args.save_feat
     if config['lmdb']:
         config['dataset_json_folder'] = 'preprocessing/dataset_json_v3'
     
-    # create logger
-    timenow=datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-    task_str = f"_{config['task_target']}" if config.get('task_target', None) is not None else ""
+    # Resolve the seed before naming the run; initialize RNGs below as before.
+    if config.get('manualSeed') is None:
+        config['manualSeed'] = random.randint(1, 10000)
+    timenow = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7))).strftime('%Hh%M')
     logger_path =  os.path.join(
                 config['log_dir'],
-                config['model_name'] + task_str + '_' + timenow
+                get_run_name(config, time_now=timenow)
             )
     os.makedirs(logger_path, exist_ok=True)
     logger = create_logger(os.path.join(logger_path, 'training.log'))
