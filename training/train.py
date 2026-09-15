@@ -60,6 +60,10 @@ parser.add_argument('--task_target', type=str, default="", help='specify the tar
 parser.add_argument('--weights_path', type=str, default=None, help='Path to pretrained weights (overrides config)')
 parser.add_argument('--seed', '--manualSeed', dest='seed', type=int, default=None,
                     help='Random seed (overrides manualSeed in YAML)')
+parser.add_argument('--batch_size', '--train_batchSize', dest='train_batchSize', type=int, default=None,
+                    help='Training batch size (overrides train_batchSize in YAML)')
+parser.add_argument('--test_batchSize', type=int, default=None,
+                    help='Validation batch size (overrides test_batchSize in YAML)')
 
 def init_seed(config):
     if config['manualSeed'] is None:
@@ -279,6 +283,10 @@ def main():
         config['pretrained'] = args.weights_path
     if args.seed is not None:
         config['manualSeed'] = args.seed
+    if args.train_batchSize is not None:
+        config['train_batchSize'] = args.train_batchSize
+    if args.test_batchSize is not None:
+        config['test_batchSize'] = args.test_batchSize
         
     config['save_ckpt'] = args.save_ckpt
     config['save_feat'] = args.save_feat
